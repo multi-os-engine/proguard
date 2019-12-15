@@ -20,10 +20,10 @@
  */
 package proguard.classfile;
 
-import proguard.classfile.attribute.Attribute;
-import proguard.classfile.attribute.visitor.AttributeVisitor;
+import proguard.classfile.attribute.*;
+import proguard.classfile.attribute.visitor.*;
 import proguard.classfile.constant.*;
-import proguard.classfile.constant.visitor.ConstantVisitor;
+import proguard.classfile.constant.visitor.*;
 import proguard.classfile.util.ClassSubHierarchyInitializer;
 import proguard.classfile.visitor.*;
 
@@ -557,6 +557,31 @@ public class ProgramClass implements Clazz
             if (attribute.getAttributeName(this).equals(name))
             {
                 attribute.accept(this, attributeVisitor);
+            }
+        }
+    }
+
+    public void innerclassesAccept(final ClassVisitor classVisitor)
+    {
+        for (int index = 0; index < u2attributesCount; index++)
+        {
+            Attribute attribute = attributes[index];
+            if (attribute.getAttributeName(this).equals(ClassConstants.ATTR_InnerClasses))
+            {
+                ((InnerClassesAttribute) attribute).innerClassEntriesAccept(this, new InnerClassesInfoVisitor()
+                {
+                    public void visitInnerClassesInfo(Clazz clazz, InnerClassesInfo innerClassesInfo)
+                    {
+                        innerClassesInfo.innerClassConstantAccept(clazz, new DummyConstantVisitor()
+                        {
+                            @Override
+                            public void visitClassConstant(Clazz clazz, ClassConstant classConstant) {
+                                classConstant.referencedClassAccept(classVisitor);
+                            }
+                        });
+                    }
+                });
+                break;
             }
         }
     }

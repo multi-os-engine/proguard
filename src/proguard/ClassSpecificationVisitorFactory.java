@@ -23,6 +23,7 @@ package proguard;
 import proguard.classfile.attribute.annotation.visitor.*;
 import proguard.classfile.attribute.visitor.AllAttributeVisitor;
 import proguard.classfile.visitor.*;
+import proguard.shrink.MemberClassUsageMarker;
 
 import java.util.List;
 
@@ -305,7 +306,8 @@ public class ClassSpecificationVisitorFactory
     {
         // Don't visit any members if there aren't any member specifications.
         if (classSpecification.fieldSpecifications  == null &&
-            classSpecification.methodSpecifications == null)
+            classSpecification.methodSpecifications == null &&
+            classSpecification.classSpecifications == null)
         {
             memberVisitor = null;
         }
@@ -357,12 +359,35 @@ public class ClassSpecificationVisitorFactory
     {
         MultiClassVisitor multiClassVisitor = new MultiClassVisitor();
 
-        addMemberVisitors(classSpecification.fieldSpecifications,  true,  multiClassVisitor, memberVisitor);
-        addMemberVisitors(classSpecification.methodSpecifications, false, multiClassVisitor, memberVisitor);
+        if (classSpecification.classSpecifications == null)
+        {
+            addMemberVisitors(classSpecification.fieldSpecifications, true, multiClassVisitor, memberVisitor);
+            addMemberVisitors(classSpecification.methodSpecifications, false, multiClassVisitor, memberVisitor);
+        }
+        else
+        {
+            addMemberVisitors(classSpecification.classSpecifications, multiClassVisitor, memberVisitor);
+        }
 
         // Mark the class member in this class and in super classes.
         return new ClassHierarchyTraveler(true, true, false, false,
                                           multiClassVisitor);
+    }
+
+
+    private static void addMemberVisitors(List              classSpecifications,
+                                          MultiClassVisitor multiClassVisitor,
+                                          MemberVisitor     memberVisitor)
+    {
+        if (classSpecifications != null)
+        {
+            for (int index = 0; index < classSpecifications.size(); index++)
+            {
+                ClassSpecification classSpecification =
+                        (ClassSpecification)classSpecifications.get(index);
+                multiClassVisitor.addClassVisitor(createInnerClassVisitor(classSpecification));
+            }
+        }
     }
 
 
@@ -389,6 +414,75 @@ public class ClassSpecificationVisitorFactory
                                        memberVisitor));
             }
         }
+    }
+
+
+    private static ClassVisitor createInnerClassVisitor(ClassSpecification classSpecification)
+    {
+        ClassVisitor composedClassVisitor = new MemberClassUsageMarker();
+
+        // By default, start visiting from the named class name, if specified.
+        String className = classSpecification.className;
+
+        // Although we may have to start from the extended class.
+        String extendsAnnotationType      = classSpecification.extendsAnnotationType;
+        String extendsClassName           = classSpecification.extendsClassName;
+
+        if (className != null)
+        {
+            composedClassVisitor = new ClassNameFilter(className,
+                                                       composedClassVisitor);
+        }
+
+        // If specified, only visit classes with the right annotation.
+        String annotationType = classSpecification.annotationType;
+
+        if (annotationType != null)
+        {
+            composedClassVisitor =
+                new AllAttributeVisitor(
+                new AllAnnotationVisitor(
+                new AnnotationTypeFilter(annotationType,
+                new AnnotatedClassVisitor(composedClassVisitor))));
+        }
+
+        // If specified, only visit classes with the right access flags.
+        if (classSpecification.requiredSetAccessFlags   != 0 ||
+            classSpecification.requiredUnsetAccessFlags != 0)
+        {
+            composedClassVisitor =
+                new ClassAccessFilter(classSpecification.requiredSetAccessFlags,
+                                      classSpecification.requiredUnsetAccessFlags,
+                                      composedClassVisitor);
+        }
+
+        if (extendsAnnotationType != null || extendsClassName != null)
+        {
+            // Start visiting from the extended class.
+            composedClassVisitor =
+                    new ClassHierarchyTraveler(false, false, false, true,
+                                               composedClassVisitor);
+
+            // If specified, only visit extended classes with the right annotation.
+            if (extendsAnnotationType != null)
+            {
+                composedClassVisitor =
+                    new AllAttributeVisitor(
+                    new AllAnnotationVisitor(
+                    new AnnotationTypeFilter(extendsAnnotationType,
+                    new AnnotatedClassVisitor(composedClassVisitor))));
+            }
+
+            // If specified, only visit extended classes with matching names.
+            if (extendsClassName != null)
+            {
+                composedClassVisitor =
+                    new ClassNameFilter(extendsClassName,
+                                        composedClassVisitor);
+            }
+        }
+
+        return new InnerclassTraveler(composedClassVisitor);
     }
 
 

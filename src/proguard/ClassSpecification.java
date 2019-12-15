@@ -42,6 +42,7 @@ public class ClassSpecification implements Cloneable
 
     public       List   fieldSpecifications;
     public       List   methodSpecifications;
+    public       List   classSpecifications;
 
 
     /**
@@ -73,7 +74,8 @@ public class ClassSpecification implements Cloneable
              classSpecification.extendsAnnotationType,
              classSpecification.extendsClassName,
              classSpecification.fieldSpecifications,
-             classSpecification.methodSpecifications);
+             classSpecification.methodSpecifications,
+             classSpecification.classSpecifications);
     }
 
 
@@ -120,6 +122,7 @@ public class ClassSpecification implements Cloneable
              extendsAnnotationType,
              extendsClassName,
              null,
+             null,
              null);
     }
 
@@ -152,6 +155,7 @@ public class ClassSpecification implements Cloneable
      *                                 any class.
      * @param fieldSpecifications      the field specifications.
      * @param methodSpecifications     the method specifications.
+     * @param classSpecifications      the class specifications.
      */
     public ClassSpecification(String comments,
                               int    requiredSetAccessFlags,
@@ -161,7 +165,8 @@ public class ClassSpecification implements Cloneable
                               String extendsAnnotationType,
                               String extendsClassName,
                               List   fieldSpecifications,
-                              List   methodSpecifications)
+                              List   methodSpecifications,
+                              List   classSpecifications)
     {
         this.comments                 = comments;
         this.requiredSetAccessFlags   = requiredSetAccessFlags;
@@ -172,6 +177,7 @@ public class ClassSpecification implements Cloneable
         this.extendsClassName         = extendsClassName;
         this.fieldSpecifications      = fieldSpecifications;
         this.methodSpecifications     = methodSpecifications;
+        this.classSpecifications      = classSpecifications;
     }
 
 
@@ -206,6 +212,21 @@ public class ClassSpecification implements Cloneable
         methodSpecifications.add(methodSpecification);
     }
 
+    /**
+     * Specifies to keep the specified class(es) of this option's class(es).
+     *
+     * @param classSpecification the class specification.
+     */
+    public void addClass(ClassSpecification classSpecification)
+    {
+        if (classSpecifications == null)
+        {
+            classSpecifications = new ArrayList();
+        }
+
+        classSpecifications.add(classSpecification);
+    }
+
 
 
     // Implementations for Object.
@@ -228,7 +249,8 @@ public class ClassSpecification implements Cloneable
             (this.extendsAnnotationType    == null ? other.extendsAnnotationType == null : this.extendsAnnotationType.equals(other.extendsAnnotationType)) &&
             (this.extendsClassName         == null ? other.extendsClassName      == null : this.extendsClassName.equals(other.extendsClassName)          ) &&
             (this.fieldSpecifications      == null ? other.fieldSpecifications   == null : this.fieldSpecifications.equals(other.fieldSpecifications)    ) &&
-            (this.methodSpecifications     == null ? other.methodSpecifications  == null : this.methodSpecifications.equals(other.methodSpecifications)  );
+            (this.methodSpecifications     == null ? other.methodSpecifications  == null : this.methodSpecifications.equals(other.methodSpecifications)  ) &&
+            (this.classSpecifications      == null ? other.classSpecifications   == null : this.classSpecifications.equals(other.classSpecifications)    );
     }
 
     public int hashCode()
@@ -242,7 +264,8 @@ public class ClassSpecification implements Cloneable
             (extendsAnnotationType == null ? 0 : extendsAnnotationType.hashCode()) ^
             (extendsClassName      == null ? 0 : extendsClassName.hashCode()     ) ^
             (fieldSpecifications   == null ? 0 : fieldSpecifications.hashCode()  ) ^
-            (methodSpecifications  == null ? 0 : methodSpecifications.hashCode() );
+            (methodSpecifications  == null ? 0 : methodSpecifications.hashCode() ) ^
+            (classSpecifications   == null ? 0 : classSpecifications.hashCode()  );
     }
 
     public Object clone()

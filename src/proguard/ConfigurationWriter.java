@@ -39,7 +39,8 @@ public class ConfigurationWriter
     {
         ConfigurationConstants.KEEP_OPTION,
         ConfigurationConstants.KEEP_CLASS_MEMBERS_OPTION,
-        ConfigurationConstants.KEEP_CLASSES_WITH_MEMBERS_OPTION
+        ConfigurationConstants.KEEP_CLASSES_WITH_MEMBERS_OPTION,
+        ConfigurationConstants.KEEP_INNERCLASSES_OPTION
     };
 
 

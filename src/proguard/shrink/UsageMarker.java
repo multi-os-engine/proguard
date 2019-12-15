@@ -68,6 +68,7 @@ implements ClassVisitor,
     private final MyInterfaceUsageMarker          interfaceUsageMarker           = new MyInterfaceUsageMarker();
     private final MyDefaultMethodUsageMarker      defaultMethodUsageMarker       = new MyDefaultMethodUsageMarker();
     private final MyPossiblyUsedMemberUsageMarker possiblyUsedMemberUsageMarker  = new MyPossiblyUsedMemberUsageMarker();
+    private final MyPossiblyUsedMemberClassUsageMarker possiblyUsedMemberClassUsageMarker  = new MyPossiblyUsedMemberClassUsageMarker();
     private final MemberVisitor                   nonEmptyMethodUsageMarker      = new AllAttributeVisitor(
                                                                                    new MyNonEmptyMethodUsageMarker());
     private final ConstantVisitor                 parameterlessConstructorMarker = new ConstantTagFilter(new int[] { ClassConstants.CONSTANT_String, ClassConstants.CONSTANT_Class },
@@ -113,6 +114,7 @@ implements ClassVisitor,
         // Process all class members that have already been marked as possibly used.
         programClass.fieldsAccept(possiblyUsedMemberUsageMarker);
         programClass.methodsAccept(possiblyUsedMemberUsageMarker);
+        programClass.innerclassesAccept(this.possiblyUsedMemberClassUsageMarker);
 
         // Mark the attributes.
         programClass.attributesAccept(this);
@@ -151,6 +153,25 @@ implements ClassVisitor,
 
             // Mark all methods.
             libraryClass.methodsAccept(this);
+        }
+    }
+
+    private class MyPossiblyUsedMemberClassUsageMarker
+    implements    ClassVisitor
+    {
+
+        public void visitProgramClass(ProgramClass programClass)
+        {
+            if (shouldBeMarkedAsPossiblyUsed(programClass))
+            {
+                markAsUsed(programClass);
+                markProgramClassBody(programClass);
+            }
+        }
+
+        public void visitLibraryClass(LibraryClass libraryClass)
+        {
+            UsageMarker.this.visitLibraryClass(libraryClass);
         }
     }
 

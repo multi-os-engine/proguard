@@ -401,7 +401,7 @@ public class Initializer
             System.out.println("Note: there were " + getmemberNoteCount +
                                " accesses to class members by means of introspection.");
             System.out.println("      You should consider explicitly keeping the mentioned class members");
-            System.out.println("      (using '-keep' or '-keepclassmembers').");
+            System.out.println("      (using '-keep' or '-keepclassmembers' or '-keepinnerclasses').");
             System.out.println("      (http://proguard.sourceforge.net/manual/troubleshooting.html#dynamicalclassmember)");
         }
 
