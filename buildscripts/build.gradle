@@ -20,8 +20,7 @@ task assembleProguardJar(type: Jar) {
     manifest.from '../core/src/META-INF/MANIFEST.MF'
 }
 
-def proguardSubprojects =
-    [':core', ':gradle', ':ant', ':wtk'].collect{ project(it) }
+def proguardSubprojects = [':core'].collect { project(it) }
 
 proguardSubprojects.each { subproject ->
     subproject.afterEvaluate {
@@ -32,40 +31,40 @@ proguardSubprojects.each { subproject ->
 
 // Copy the ReTrace jar.
 
-task copyRetraceJar(type: Copy) {
-    into '../lib'
-}
+//task copyRetraceJar(type: Copy) {
+//    into '../lib'
+//}
 
-project(':retrace').afterEvaluate {
-    copyRetraceJar.from it.tasks['jar']
-}
+//project(':retrace').afterEvaluate {
+//    copyRetraceJar.from it.tasks['jar']
+//}
 
 // Copy the GUI jar.
 
-task copyGuiJar(type: Copy) {
-    into '../lib'
-    rename 'gui.jar', 'proguardgui.jar'
-}
+//task copyGuiJar(type: Copy) {
+//    into '../lib'
+//    rename 'gui.jar', 'proguardgui.jar'
+//}
 
-project(':gui').afterEvaluate {
-    copyGuiJar.from it.tasks['jar']
-}
+//project(':gui').afterEvaluate {
+//    copyGuiJar.from it.tasks['jar']
+//}
 
 // Copy the annotations jar.
 
-task copyAnnotationsJar(type: Copy) {
-    into '../lib'
-}
+//task copyAnnotationsJar(type: Copy) {
+//    into '../lib'
+//}
 
-project(':annotations').afterEvaluate {
-    copyAnnotationsJar.from it.tasks['jar']
-}
+//project(':annotations').afterEvaluate {
+//    copyAnnotationsJar.from it.tasks['jar']
+//}
 
 // Assemble or copy all jars.
 
 task assemble {
     dependsOn assembleProguardJar
-    dependsOn copyRetraceJar
-    dependsOn copyGuiJar
-    dependsOn copyAnnotationsJar
+//    dependsOn copyRetraceJar
+//    dependsOn copyGuiJar
+//    dependsOn copyAnnotationsJar
 }

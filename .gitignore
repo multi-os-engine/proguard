@@ -1,2 +1,9 @@
 .hg/**
 .hgtags
+.idea/
+*.iml
+target/
+classes/
+build/
+.gradle/
+lib/
