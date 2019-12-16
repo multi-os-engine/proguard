@@ -88,6 +88,7 @@ implements   ClassVisitor
                                                     programClassCounter,
                                                     null,
                                                     null,
+                                                    null,
                                                     null));
 
                     if (programClassCounter.getCount() == 0)
@@ -97,6 +98,7 @@ implements   ClassVisitor
                             visitorFactory
                                 .createClassPoolVisitor(keepClassSpecification,
                                                         this,
+                                                        null,
                                                         null,
                                                         null,
                                                         null));

@@ -74,6 +74,7 @@ public class SeedPrinter
                                         keepMarker,
                                         keepMarker,
                                         keepMarker,
+                                        keepMarker,
                                         null);
 
         // Mark the seeds.

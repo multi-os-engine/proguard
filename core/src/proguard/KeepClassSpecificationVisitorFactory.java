@@ -82,6 +82,7 @@ extends      ClassSpecificationVisitorFactory
                                                    ClassVisitor     classVisitor,
                                                    MemberVisitor    fieldVisitor,
                                                    MemberVisitor    methodVisitor,
+                                                   MemberVisitor    innerClassVisitor,
                                                    AttributeVisitor attributeVisitor)
     {
         MultiClassPoolVisitor multiClassPoolVisitor = new MultiClassPoolVisitor();
@@ -102,6 +103,7 @@ extends      ClassSpecificationVisitorFactory
                                                classVisitor,
                                                fieldVisitor,
                                                methodVisitor,
+                                               innerClassVisitor,
                                                attributeVisitor));
                 }
             }
@@ -130,6 +132,7 @@ extends      ClassSpecificationVisitorFactory
                                                    ClassVisitor           classVisitor,
                                                    MemberVisitor          fieldVisitor,
                                                    MemberVisitor          methodVisitor,
+                                                   MemberVisitor          innerClassVisitor,
                                                    AttributeVisitor       attributeVisitor)
     {
         // Start a global list of wilcdard matchers, so they can be referenced
@@ -162,6 +165,15 @@ extends      ClassSpecificationVisitorFactory
                 new MemberVisitor[]
                 {
                     methodVisitor,
+                    new MemberDescriptorReferencedClassVisitor(classVisitor)
+                });
+
+            innerClassVisitor = innerClassVisitor == null ?
+                new MemberDescriptorReferencedClassVisitor(classVisitor) :
+                new MultiMemberVisitor(
+                new MemberVisitor[]
+                {
+                        innerClassVisitor,
                     new MemberDescriptorReferencedClassVisitor(classVisitor)
                 });
         }
@@ -208,6 +220,7 @@ extends      ClassSpecificationVisitorFactory
                                        classVisitor,
                                        fieldVisitor,
                                        methodVisitor,
+                                       innerClassVisitor,
                                        attributeVisitor,
                                        variableStringMatchers));
 
@@ -220,6 +233,7 @@ extends      ClassSpecificationVisitorFactory
                                           classVisitor,
                                           fieldVisitor,
                                           methodVisitor,
+                                          innerClassVisitor,
                                           attributeVisitor,
                                           variableStringMatchers);
         }
@@ -247,6 +261,7 @@ extends      ClassSpecificationVisitorFactory
                                                     ClassVisitor           classVisitor,
                                                     MemberVisitor          fieldVisitor,
                                                     MemberVisitor          methodVisitor,
+                                                    MemberVisitor          innerClassVisitor,
                                                     AttributeVisitor       attributeVisitor,
                                                     List                   variableStringMatchers)
     {
@@ -275,9 +290,11 @@ extends      ClassSpecificationVisitorFactory
                 createCombinedClassVisitor(keepClassSpecification.attributeNames,
                                            keepClassSpecification.fieldSpecifications,
                                            keepClassSpecification.methodSpecifications,
+                                           keepClassSpecification.classSpecifications,
                                            classVisitor,
                                            fieldVisitor,
                                            methodVisitor,
+                                           innerClassVisitor,
                                            attributeVisitor,
                                            variableStringMatchers));
 
@@ -290,6 +307,7 @@ extends      ClassSpecificationVisitorFactory
                                                 classVisitor,
                                                 fieldVisitor,
                                                 methodVisitor,
+                                                innerClassVisitor,
                                                 attributeVisitor,
                                                 variableStringMatchers);
         }

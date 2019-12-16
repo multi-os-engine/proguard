@@ -23,6 +23,7 @@ package proguard;
 import proguard.classfile.attribute.annotation.visitor.*;
 import proguard.classfile.attribute.visitor.*;
 import proguard.classfile.visitor.*;
+import proguard.shrink.MemberClassUsageMarker;
 import proguard.util.*;
 
 import java.util.List;
@@ -55,6 +56,7 @@ public class ClassSpecificationVisitorFactory
                                       classVisitor,
                                       memberVisitor,
                                       memberVisitor,
+                                      memberVisitor,
                                       null);
     }
 
@@ -79,6 +81,7 @@ public class ClassSpecificationVisitorFactory
                                                    ClassVisitor     classVisitor,
                                                    MemberVisitor    fieldVisitor,
                                                    MemberVisitor    methodVisitor,
+                                                   MemberVisitor    innerClassVisitor,
                                                    AttributeVisitor attributeVisitor)
     {
         MultiClassPoolVisitor multiClassPoolVisitor = new MultiClassPoolVisitor();
@@ -95,6 +98,7 @@ public class ClassSpecificationVisitorFactory
                                            classVisitor,
                                            fieldVisitor,
                                            methodVisitor,
+                                           innerClassVisitor,
                                            attributeVisitor,
                                            null));
             }
@@ -126,6 +130,7 @@ public class ClassSpecificationVisitorFactory
                                                       ClassVisitor       classVisitor,
                                                       MemberVisitor      fieldVisitor,
                                                       MemberVisitor      methodVisitor,
+                                                      MemberVisitor      innerClassVisitor,
                                                       AttributeVisitor   attributeVisitor,
                                                       List               variableStringMatchers)
     {
@@ -161,9 +166,11 @@ public class ClassSpecificationVisitorFactory
             createCombinedClassVisitor(classSpecification.attributeNames,
                                        classSpecification.fieldSpecifications,
                                        classSpecification.methodSpecifications,
+                                       classSpecification.classSpecifications,
                                        classVisitor,
                                        fieldVisitor,
                                        methodVisitor,
+                                       innerClassVisitor,
                                        attributeVisitor,
                                        variableStringMatchers);
 
@@ -252,6 +259,8 @@ public class ClassSpecificationVisitorFactory
      *                               visit.
      * @param methodSpecifications   optional specifications of the methods to
      *                               visit.
+     * @param innerClassSpecifications    optional specifications of the inner class to
+     *                               visit.
      * @param classVisitor           an optional ClassVisitor to be applied to
      *                               all classes.
      * @param fieldVisitor           an optional MemberVisitor to be applied to
@@ -266,9 +275,11 @@ public class ClassSpecificationVisitorFactory
     protected ClassVisitor createCombinedClassVisitor(List             attributeNames,
                                                       List             fieldSpecifications,
                                                       List             methodSpecifications,
+                                                      List             innerClassSpecifications,
                                                       ClassVisitor     classVisitor,
                                                       MemberVisitor    fieldVisitor,
                                                       MemberVisitor    methodVisitor,
+                                                      MemberVisitor    innerClassVisitor,
                                                       AttributeVisitor attributeVisitor,
                                                       List             variableStringMatchers)
     {
@@ -283,6 +294,11 @@ public class ClassSpecificationVisitorFactory
             methodVisitor = null;
         }
 
+        if (innerClassSpecifications == null)
+        {
+            innerClassVisitor = null;
+        }
+
         // The class visitor for classes and their members.
         MultiClassVisitor multiClassVisitor = new MultiClassVisitor();
 
@@ -290,9 +306,10 @@ public class ClassSpecificationVisitorFactory
         if (classVisitor != null)
         {
             // This class visitor may be the only one.
-            if (fieldVisitor     == null &&
-                methodVisitor    == null &&
-                attributeVisitor == null)
+            if (fieldVisitor      == null &&
+                methodVisitor     == null &&
+                innerClassVisitor == null &&
+                attributeVisitor  == null)
             {
                 return classVisitor;
             }
@@ -314,14 +331,17 @@ public class ClassSpecificationVisitorFactory
         }
 
         // If specified, let the member info visitor visit the class members.
-        if (fieldVisitor  != null ||
-            methodVisitor != null)
+        if (fieldVisitor      != null ||
+            methodVisitor     != null ||
+            innerClassVisitor != null)
         {
             ClassVisitor memberClassVisitor =
                 createClassVisitor(fieldSpecifications,
                                    methodSpecifications,
+                                   innerClassSpecifications,
                                    fieldVisitor,
                                    methodVisitor,
+                                   innerClassVisitor,
                                    attributeVisitor,
                                    variableStringMatchers);
 
@@ -356,21 +376,130 @@ public class ClassSpecificationVisitorFactory
      */
     private ClassVisitor createClassVisitor(List             fieldSpecifications,
                                             List             methodSpecifications,
+                                            List             innerClassSpecifications,
                                             MemberVisitor    fieldVisitor,
                                             MemberVisitor    methodVisitor,
+                                            MemberVisitor    innerClassVisitor,
                                             AttributeVisitor attributeVisitor,
                                             List             variableStringMatchers)
     {
         MultiClassVisitor multiClassVisitor = new MultiClassVisitor();
 
-        addMemberVisitors(fieldSpecifications,  true,  multiClassVisitor, fieldVisitor,  attributeVisitor, variableStringMatchers);
-        addMemberVisitors(methodSpecifications, false, multiClassVisitor, methodVisitor, attributeVisitor, variableStringMatchers);
+        if(innerClassSpecifications == null)
+        {
+            addMemberVisitors(fieldSpecifications, true, multiClassVisitor, fieldVisitor, attributeVisitor, variableStringMatchers);
+            addMemberVisitors(methodSpecifications, false, multiClassVisitor, methodVisitor, attributeVisitor, variableStringMatchers);
+        }
+        else
+        {
+            addMemberVisitors(innerClassSpecifications, multiClassVisitor, innerClassVisitor, attributeVisitor, variableStringMatchers);
+        }
 
         // Mark the class member in this class and in super classes.
         return new ClassHierarchyTraveler(true, true, false, false,
                                           multiClassVisitor);
     }
 
+    private void addMemberVisitors(List              classSpecifications,
+                                   MultiClassVisitor multiClassVisitor,
+                                   MemberVisitor     memberVisitor,
+                                   AttributeVisitor  attributeVisitor,
+                                   List              variableStringMatchers)
+    {
+        if (classSpecifications != null)
+        {
+            for (int index = 0; index < classSpecifications.size(); index++)
+            {
+                ClassSpecification classSpecification =
+                    (ClassSpecification )classSpecifications.get(index);
+
+                multiClassVisitor.addClassVisitor(
+                    createInnerClassVisitor(classSpecification,
+                                            variableStringMatchers));
+            }
+        }
+    }
+
+    private static ClassVisitor createInnerClassVisitor(ClassSpecification classSpecification,
+                                                        List               variableStringMatchers)
+    {
+        ClassVisitor composedClassVisitor = new MemberClassUsageMarker();
+
+        String annotationType        = classSpecification.annotationType;
+        String className             = classSpecification.className;
+        String extendsAnnotationType = classSpecification.extendsAnnotationType;
+        String extendsClassName      = classSpecification.extendsClassName;
+
+        // We need to parse the names before the descriptors, to make sure the
+        // list of variable string matchers is filled out in the right order.
+        StringMatcher annotationTypeMatcher = annotationType == null ? null :
+            new ListParser(new ClassNameParser(variableStringMatchers)).parse(annotationType);
+
+        StringMatcher classNameMatcher = className == null ? null :
+            new ListParser(new NameParser(variableStringMatchers)).parse(className);
+
+        StringMatcher extendsAnnotationTypeMatcher = extendsAnnotationType == null ? null :
+            new ListParser(new ClassNameParser(variableStringMatchers)).parse(extendsAnnotationType);
+
+        StringMatcher extendsClassNameMatcher = extendsClassName == null ? null :
+            new ListParser(new NameParser(variableStringMatchers)).parse(extendsClassName);
+
+        // By default, start visiting from the named class name, if specified.
+        if (className != null)
+        {
+            composedClassVisitor = new ClassNameFilter(classNameMatcher,
+                                                       composedClassVisitor);
+        }
+
+        // If specified, only visit classes with the right annotation.
+        if (annotationType != null)
+        {
+            composedClassVisitor =
+                new AllAttributeVisitor(
+                new AllAnnotationVisitor(
+                new AnnotationTypeFilter(annotationTypeMatcher,
+                new AnnotationToAnnotatedClassVisitor(composedClassVisitor))));
+        }
+
+        // If specified, only visit classes with the right access flags.
+        if (classSpecification.requiredSetAccessFlags   != 0 ||
+            classSpecification.requiredUnsetAccessFlags != 0)
+        {
+            composedClassVisitor =
+                new ClassAccessFilter(classSpecification.requiredSetAccessFlags,
+                                      classSpecification.requiredUnsetAccessFlags,
+                                      composedClassVisitor);
+        }
+
+        // Although we may have to start from the extended class.
+        if (extendsAnnotationType != null || extendsClassName != null)
+        {
+            // Start visiting from the extended class.
+            composedClassVisitor =
+                new ClassHierarchyTraveler(false, false, false, true,
+                                           composedClassVisitor);
+
+            // If specified, only visit extended classes with the right annotation.
+            if (extendsAnnotationType != null)
+            {
+                composedClassVisitor =
+                    new AllAttributeVisitor(
+                    new AllAnnotationVisitor(
+                    new AnnotationTypeFilter(extendsAnnotationTypeMatcher,
+                    new AnnotationToAnnotatedClassVisitor(composedClassVisitor))));
+            }
+
+            // If specified, only visit extended classes with matching names.
+            if (extendsClassName != null)
+            {
+                composedClassVisitor =
+                    new ClassNameFilter(extendsClassNameMatcher,
+                                        composedClassVisitor);
+            }
+        }
+
+        return new InnerclassTraveler(composedClassVisitor);
+    }
 
     /**
      * Adds elements to the given MultiClassVisitor, to apply the given
@@ -473,6 +602,7 @@ public class ClassSpecificationVisitorFactory
         ClassPoolVisitor conditionalClassTester =
             createClassPoolVisitor(classSpecification,
                                    conditionalMemberTester,
+                                   null,
                                    null,
                                    null,
                                    null,

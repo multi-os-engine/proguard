@@ -530,6 +530,8 @@ public class LibraryClass implements Clazz
         throw new UnsupportedOperationException("Library class ["+thisClassName+"] doesn't store attributes");
     }
 
+    public void innerclassesAccept(ClassVisitor classVisitor) {
+    }
 
     // Implementations for VisitorAccepter.
 

@@ -62,7 +62,9 @@ public class KeepClassMemberChecker
                     (keepClassSpecification.fieldSpecifications  == null ||
                      keepClassSpecification.fieldSpecifications.size() == 0) &&
                     (keepClassSpecification.methodSpecifications == null ||
-                     keepClassSpecification.methodSpecifications.size() == 0))
+                     keepClassSpecification.methodSpecifications.size() == 0)&&
+                    (keepClassSpecification.classSpecifications == null ||
+                     keepClassSpecification.classSpecifications.size() == 0))
                 {
                     String className = keepClassSpecification.className;
                     if (className == null)

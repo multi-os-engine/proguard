@@ -311,6 +311,7 @@ public class Optimizer
                                         keepMarker,
                                         keepMarker,
                                         keepMarker,
+                                        keepMarker,
                                         keepMarker);
         // Mark the seeds.
         programClassPool.accept(classPoolvisitor);

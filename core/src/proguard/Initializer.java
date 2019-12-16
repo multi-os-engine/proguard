@@ -413,7 +413,7 @@ public class Initializer
             out.println("Note: there were " + getmemberNoteCount +
                         " accesses to class members by means of reflection.");
             out.println("      You should consider explicitly keeping the mentioned class members");
-            out.println("      (using '-keep' or '-keepclassmembers').");
+            out.println("      (using '-keep' or '-keepclassmembers' or '-keepinnerclasses').");
             out.println("      (http://proguard.sourceforge.net/manual/troubleshooting.html#dynamicalclassmember)");
         }
 

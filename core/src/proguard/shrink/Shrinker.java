@@ -88,6 +88,7 @@ public class Shrinker
                                         classUsageMarker,
                                         usageMarker,
                                         usageMarker,
+                                        usageMarker,
                                         usageMarker);
 
         // Mark the seeds.
@@ -123,6 +124,7 @@ public class Shrinker
             ClassPoolVisitor whyClassPoolvisitor =
                 new ClassSpecificationVisitorFactory()
                     .createClassPoolVisitor(configuration.whyAreYouKeeping,
+                                            shortestUsagePrinter,
                                             shortestUsagePrinter,
                                             shortestUsagePrinter,
                                             shortestUsagePrinter,

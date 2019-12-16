@@ -164,6 +164,7 @@ public class ConfigurationParser
             else if (ConfigurationConstants.IF_OPTION                                        .startsWith(nextWord)) configuration.keep                                  = parseIfCondition(configuration.keep);
             else if (ConfigurationConstants.KEEP_OPTION                                      .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, true,  false, false, null);
             else if (ConfigurationConstants.KEEP_CLASS_MEMBERS_OPTION                        .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, false, null);
+            else if (ConfigurationConstants.KEEP_INNERCLASSES_OPTION                         .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, false, null);
             else if (ConfigurationConstants.KEEP_CLASSES_WITH_MEMBERS_OPTION                 .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, true,  false, null);
             else if (ConfigurationConstants.KEEP_NAMES_OPTION                                .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, true,  false, true,  null);
             else if (ConfigurationConstants.KEEP_CLASS_MEMBER_NAMES_OPTION                   .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, true,  null);
@@ -736,6 +737,19 @@ public class ConfigurationParser
     public ClassSpecification parseClassSpecificationArguments(boolean allowValues)
     throws ParseException, IOException
     {
+        return parseClassSpecificationArguments(allowValues, false);
+    }
+
+    /**
+     * Parses and returns a class specification.
+     * @throws ParseException if the class specification contains a syntax error.
+     * @throws IOException    if an IO error occurs while reading the class
+     *                        specification.
+     */
+    public ClassSpecification parseClassSpecificationArguments(boolean allowValues,
+                                                               boolean innerClass)
+    throws ParseException, IOException
+    {
         // Clear the annotation type.
         String annotationType = null;
 
@@ -880,7 +894,7 @@ public class ConfigurationParser
 
 
         // Now add any class members to this class specification.
-        if (!configurationEnd())
+        if (!configurationEnd() && !innerClass)
         {
             // Check the class member opening part.
             if (!ConfigurationConstants.OPEN_KEYWORD.equals(nextWord))
@@ -904,6 +918,14 @@ public class ConfigurationParser
                     break;
                 }
 
+                if (nextWord.equals(ConfigurationConstants.CLASS_KEYWORD))
+                {
+                    parseInnerClassSpecificationArguments(externalClassName,
+                                                          allowValues,
+                                                          classSpecification);
+                    continue;
+                }
+
                 parseMemberSpecificationArguments(externalClassName,
                                                   allowValues,
                                                   classSpecification);
@@ -911,6 +933,14 @@ public class ConfigurationParser
         }
 
         return classSpecification;
+    }
+
+    private void parseInnerClassSpecificationArguments(String             externalClassName,
+                                                       boolean            allowValues,
+                                                       ClassSpecification classSpecification)
+    throws ParseException, IOException
+    {
+        classSpecification.addClass(parseClassSpecificationArguments(allowValues, true));
     }
 
 

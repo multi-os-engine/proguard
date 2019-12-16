@@ -98,6 +98,7 @@ public class Obfuscator
                                         nameMarker,
                                         nameMarker,
                                         nameMarker,
+                                        nameMarker,
                                         null);
         // Mark the seeds.
         programClassPool.accept(classPoolvisitor);

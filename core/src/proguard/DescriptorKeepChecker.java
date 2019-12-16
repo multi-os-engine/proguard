@@ -79,6 +79,7 @@ implements   MemberVisitor,
                                         keepMarker,
                                         keepMarker,
                                         keepMarker,
+                                        keepMarker,
                                         null);
         // Mark the seeds.
         programClassPool.accept(classPoolvisitor);
