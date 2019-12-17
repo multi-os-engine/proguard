@@ -23,7 +23,7 @@ package proguard;
 import proguard.classfile.attribute.annotation.visitor.*;
 import proguard.classfile.attribute.visitor.*;
 import proguard.classfile.visitor.*;
-import proguard.shrink.MemberClassUsageMarker;
+import proguard.shrink.*;
 import proguard.util.*;
 
 import java.util.List;
@@ -406,7 +406,7 @@ public class ClassSpecificationVisitorFactory
                                    AttributeVisitor  attributeVisitor,
                                    List              variableStringMatchers)
     {
-        if (classSpecifications != null)
+        if (classSpecifications != null && memberVisitor instanceof ClassVisitor)
         {
             for (int index = 0; index < classSpecifications.size(); index++)
             {
@@ -415,15 +415,17 @@ public class ClassSpecificationVisitorFactory
 
                 multiClassVisitor.addClassVisitor(
                     createInnerClassVisitor(classSpecification,
+                                            (ClassVisitor)memberVisitor,
                                             variableStringMatchers));
             }
         }
     }
 
     private static ClassVisitor createInnerClassVisitor(ClassSpecification classSpecification,
+                                                        ClassVisitor       classVisitor,
                                                         List               variableStringMatchers)
     {
-        ClassVisitor composedClassVisitor = new MemberClassUsageMarker();
+        ClassVisitor composedClassVisitor = MemberClassUsageMarker.wrapClassVisitor(classVisitor);
 
         String annotationType        = classSpecification.annotationType;
         String className             = classSpecification.className;

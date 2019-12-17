@@ -117,7 +117,7 @@ implements ClassVisitor,
         // Process all class members that have already been marked as possibly used.
         programClass.fieldsAccept(possiblyUsedMemberUsageMarker);
         programClass.methodsAccept(possiblyUsedMemberUsageMarker);
-        programClass.innerclassesAccept(this.possiblyUsedMemberClassUsageMarker);
+        programClass.innerclassesAccept(possiblyUsedMemberClassUsageMarker);
 
         // Mark the attributes.
         programClass.attributesAccept(this);
@@ -165,7 +165,7 @@ implements ClassVisitor,
 
         public void visitProgramClass(ProgramClass programClass)
         {
-            if (shouldBeMarkedAsPossiblyUsed(programClass))
+            if (isPossiblyUsed(programClass))
             {
                 markAsUsed(programClass);
                 markProgramClassBody(programClass);
