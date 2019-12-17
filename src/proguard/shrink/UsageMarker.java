@@ -162,7 +162,7 @@ implements ClassVisitor,
 
         public void visitProgramClass(ProgramClass programClass)
         {
-            if (shouldBeMarkedAsPossiblyUsed(programClass))
+            if (isPossiblyUsed(programClass))
             {
                 markAsUsed(programClass);
                 markProgramClassBody(programClass);
