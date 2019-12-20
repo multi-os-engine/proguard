@@ -121,7 +121,7 @@ implements ClassVisitor,
                                     defaultMethod.getDescriptor(interfaceClass)))
             {
                 defaultMethod.accept(interfaceClass,
-                    new MemberAdder(targetClass));
+                    new MemberAdder(targetClass, null, new MySyntheticAccessAdder()));
 
                 targetClass.accept(modifiedClassVisitor);
             }
@@ -219,7 +219,7 @@ implements ClassVisitor,
             new PrefixAddingStringFunction("default$");
 
         interfaceMethod.accept(interfaceClass,
-            new MemberAdder(targetClass, memberNameFunction, null));
+            new MemberAdder(targetClass, memberNameFunction, new MySyntheticAccessAdder()));
 
         String targetMethodName =
             memberNameFunction.transform(interfaceMethod.getName(interfaceClass));
@@ -349,6 +349,22 @@ implements ClassVisitor,
                                     CodeAttribute       codeAttribute,
                                     int                 offset,
                                     CodeAttributeEditor codeAttributeEditor) {}
+    }
+
+    /**
+     * Add ACC_SYNTHETIC to copied methods
+     */
+    private class MySyntheticAccessAdder
+    implements    MemberVisitor
+    {
+        @Override
+        public void visitProgramMethod(ProgramClass programClass, ProgramMethod programMethod)
+        {
+            programMethod.u2accessFlags |= AccessConstants.SYNTHETIC;
+        }
+
+        @Override
+        public void visitLibraryMethod(LibraryClass libraryClass, LibraryMethod libraryMethod) { }
     }
 }
 
