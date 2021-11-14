@@ -59,24 +59,24 @@ public class KeepClassSpecification extends ClassSpecification
      *                              members.
      * @deprecated
      */
-    public KeepClassSpecification(boolean            markClasses,
-                                  boolean            markConditionally,
-                                  boolean            markDescriptorClasses,
-                                  boolean            allowShrinking,
-                                  boolean            allowOptimization,
-                                  boolean            allowObfuscation,
-                                  ClassSpecification classSpecification)
-    {
-        this(markClasses,
-             markConditionally,
-             markDescriptorClasses,
-             false,
-             allowShrinking,
-             allowOptimization,
-             allowObfuscation,
-             null,
-             classSpecification);
-    }
+//    public KeepClassSpecification(boolean            markClasses,
+//                                  boolean            markConditionally,
+//                                  boolean            markDescriptorClasses,
+//                                  boolean            allowShrinking,
+//                                  boolean            allowOptimization,
+//                                  boolean            allowObfuscation,
+//                                  ClassSpecification classSpecification)
+//    {
+//        this(markClasses,
+//             markConditionally,
+//             markDescriptorClasses,
+//             false,
+//             allowShrinking,
+//             allowOptimization,
+//             allowObfuscation,
+//             null,
+//             classSpecification);
+//    }
 
 
     /**

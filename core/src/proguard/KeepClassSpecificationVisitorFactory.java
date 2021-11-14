@@ -82,7 +82,7 @@ extends      ClassSpecificationVisitorFactory
                                                    ClassVisitor     classVisitor,
                                                    MemberVisitor    fieldVisitor,
                                                    MemberVisitor    methodVisitor,
-                                                   MemberVisitor    innerClassVisitor,
+                                                   ClassVisitor     companionClassVisitor,
                                                    AttributeVisitor attributeVisitor)
     {
         MultiClassPoolVisitor multiClassPoolVisitor = new MultiClassPoolVisitor();
@@ -103,7 +103,7 @@ extends      ClassSpecificationVisitorFactory
                                                classVisitor,
                                                fieldVisitor,
                                                methodVisitor,
-                                               innerClassVisitor,
+                                               companionClassVisitor,
                                                attributeVisitor));
                 }
             }
@@ -132,7 +132,7 @@ extends      ClassSpecificationVisitorFactory
                                                    ClassVisitor           classVisitor,
                                                    MemberVisitor          fieldVisitor,
                                                    MemberVisitor          methodVisitor,
-                                                   MemberVisitor          innerClassVisitor,
+                                                   ClassVisitor           companionClassVisitor,
                                                    AttributeVisitor       attributeVisitor)
     {
         // Start a global list of wilcdard matchers, so they can be referenced
@@ -165,15 +165,6 @@ extends      ClassSpecificationVisitorFactory
                 new MemberVisitor[]
                 {
                     methodVisitor,
-                    new MemberDescriptorReferencedClassVisitor(classVisitor)
-                });
-
-            innerClassVisitor = innerClassVisitor == null ?
-                new MemberDescriptorReferencedClassVisitor(classVisitor) :
-                new MultiMemberVisitor(
-                new MemberVisitor[]
-                {
-                        innerClassVisitor,
                     new MemberDescriptorReferencedClassVisitor(classVisitor)
                 });
         }

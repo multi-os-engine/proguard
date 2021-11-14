@@ -88,7 +88,7 @@ public class Shrinker
                                         classUsageMarker,
                                         usageMarker,
                                         usageMarker,
-                                        usageMarker,
+                                        classUsageMarker,
                                         usageMarker);
 
         // Mark the seeds.
