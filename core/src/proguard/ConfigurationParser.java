@@ -165,6 +165,7 @@ public class ConfigurationParser
             else if (ConfigurationConstants.KEEP_OPTION                                      .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, true,  false, false, null);
             else if (ConfigurationConstants.KEEP_CLASS_MEMBERS_OPTION                        .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, false, null);
             else if (ConfigurationConstants.KEEP_INNERCLASSES_OPTION                         .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, false, null);
+            else if (ConfigurationConstants.KEEP_COMPANIONCLASSES_OPTION                     .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, false, null);
             else if (ConfigurationConstants.KEEP_CLASSES_WITH_MEMBERS_OPTION                 .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, true,  false, null);
             else if (ConfigurationConstants.KEEP_NAMES_OPTION                                .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, true,  false, true,  null);
             else if (ConfigurationConstants.KEEP_CLASS_MEMBER_NAMES_OPTION                   .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, true,  null);
@@ -568,6 +569,7 @@ public class ConfigurationParser
         if      (ConfigurationConstants.KEEP_OPTION                          .startsWith(nextWord)) keepClassSpecifications = parseKeepClassSpecificationArguments(keepClassSpecifications, true,  false, false, condition);
         else if (ConfigurationConstants.KEEP_CLASS_MEMBERS_OPTION            .startsWith(nextWord)) keepClassSpecifications = parseKeepClassSpecificationArguments(keepClassSpecifications, false, false, false, condition);
         else if (ConfigurationConstants.KEEP_INNERCLASSES_OPTION             .startsWith(nextWord)) keepClassSpecifications = parseKeepClassSpecificationArguments(keepClassSpecifications, false, false, false, condition);
+        else if (ConfigurationConstants.KEEP_COMPANIONCLASSES_OPTION         .startsWith(nextWord)) keepClassSpecifications = parseKeepClassSpecificationArguments(keepClassSpecifications, false, false, false, condition);
         else if (ConfigurationConstants.KEEP_CLASSES_WITH_MEMBERS_OPTION     .startsWith(nextWord)) keepClassSpecifications = parseKeepClassSpecificationArguments(keepClassSpecifications, false, true,  false, condition);
         else if (ConfigurationConstants.KEEP_NAMES_OPTION                    .startsWith(nextWord)) keepClassSpecifications = parseKeepClassSpecificationArguments(keepClassSpecifications, true,  false, true,  condition);
         else if (ConfigurationConstants.KEEP_CLASS_MEMBER_NAMES_OPTION       .startsWith(nextWord)) keepClassSpecifications = parseKeepClassSpecificationArguments(keepClassSpecifications, false, false, true,  condition);
@@ -748,7 +750,7 @@ public class ConfigurationParser
      *                        specification.
      */
     public ClassSpecification parseClassSpecificationArguments(boolean allowValues,
-                                                               boolean innerClass)
+                                                               boolean companionClass)
     throws ParseException, IOException
     {
         // Clear the annotation type.
@@ -895,7 +897,7 @@ public class ConfigurationParser
 
 
         // Now add any class members to this class specification.
-        if (!configurationEnd() && !innerClass)
+        if (!configurationEnd() && !companionClass)
         {
             // Check the class member opening part.
             if (!ConfigurationConstants.OPEN_KEYWORD.equals(nextWord))
@@ -921,9 +923,9 @@ public class ConfigurationParser
 
                 if (nextWord.equals(ConfigurationConstants.CLASS_KEYWORD))
                 {
-                    parseInnerClassSpecificationArguments(externalClassName,
-                                                          allowValues,
-                                                          classSpecification);
+                    parseCompanionClassSpecificationArguments(externalClassName,
+                                                              allowValues,
+                                                              classSpecification);
                     continue;
                 }
 
@@ -936,9 +938,9 @@ public class ConfigurationParser
         return classSpecification;
     }
 
-    private void parseInnerClassSpecificationArguments(String             externalClassName,
-                                                       boolean            allowValues,
-                                                       ClassSpecification classSpecification)
+    private void parseCompanionClassSpecificationArguments(String             externalClassName,
+                                                           boolean            allowValues,
+                                                           ClassSpecification classSpecification)
     throws ParseException, IOException
     {
         classSpecification.addClass(parseClassSpecificationArguments(allowValues, true));
