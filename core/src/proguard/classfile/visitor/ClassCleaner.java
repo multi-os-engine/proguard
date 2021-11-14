@@ -61,6 +61,8 @@ implements   ClassVisitor,
     {
         clean(programClass);
 
+        programClass.companionClasses = null;
+
         programClass.constantPoolEntriesAccept(this);
 
         programClass.fieldsAccept(this);
@@ -73,6 +75,8 @@ implements   ClassVisitor,
     public void visitLibraryClass(LibraryClass libraryClass)
     {
         clean(libraryClass);
+
+        libraryClass.companionClasses = null;
 
         libraryClass.fieldsAccept(this);
         libraryClass.methodsAccept(this);

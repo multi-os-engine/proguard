@@ -121,6 +121,8 @@ implements ClassVisitor,
 
         // Mark the attributes.
         programClass.attributesAccept(this);
+
+        programClass.companionClassesAccept(this);
     }
 
 
@@ -129,6 +131,8 @@ implements ClassVisitor,
         if (shouldBeMarkedAsUsed(libraryClass))
         {
             markAsUsed(libraryClass);
+
+            libraryClass.companionClassesAccept(this);
 
             // We're not going to analyze all library code. We're assuming that
             // if this class is being used, all of its methods will be used as

@@ -57,6 +57,8 @@ public class LibraryClass implements Clazz
      */
     public Clazz[] subClasses;
 
+    public Clazz[] companionClasses;
+
     /**
      * An extra field in which visitors can store information.
      */
@@ -168,6 +170,21 @@ public class LibraryClass implements Clazz
         }
 
         subClasses[subClasses.length-1] = clazz;
+    }
+
+
+    @Override
+    public void addCompanionClass(Clazz clazz) {
+        if (companionClasses == null) {
+            companionClasses = new Clazz[1];
+        } else {
+            // Copy the old elements into new larger array.
+            Clazz[] newCompanionClasses = new Clazz[companionClasses.length+1];
+            System.arraycopy(companionClasses, 0, newCompanionClasses, 0, companionClasses.length);
+            companionClasses = newCompanionClasses;
+        }
+
+        companionClasses[companionClasses.length-1] = clazz;
     }
 
 
@@ -426,6 +443,16 @@ public class LibraryClass implements Clazz
             for (int index = 0; index < subClasses.length; index++)
             {
                 subClasses[index].accept(classVisitor);
+            }
+        }
+    }
+
+
+    @Override
+    public void companionClassesAccept(ClassVisitor classVisitor) {
+        if (companionClasses != null) {
+            for (int index = 0; index < companionClasses.length; index++) {
+                companionClasses[index].accept(classVisitor);
             }
         }
     }

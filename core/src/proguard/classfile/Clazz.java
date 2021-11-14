@@ -114,6 +114,11 @@ public interface Clazz extends VisitorAccepter
     public void addSubClass(Clazz clazz);
 
     /**
+     * Add a class that will be marked if current class is marked.
+     */
+    public void addCompanionClass(Clazz clazz);
+
+    /**
      * Returns the super class of this class.
      */
     public Clazz getSuperClass();
@@ -193,6 +198,8 @@ public interface Clazz extends VisitorAccepter
      *                     subclasses.
      */
     public void subclassesAccept(ClassVisitor classVisitor);
+
+    public void companionClassesAccept(ClassVisitor classVisitor);
 
     /**
      * Lets the given constant pool entry visitor visit all constant pool entries
