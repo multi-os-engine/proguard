@@ -1,11 +1,11 @@
 plugins {
     id 'java-library'
-    id 'maven-publish'
-    id "org.jetbrains.kotlin.jvm" version "$kotlinVersion"
-    id 'com.adarshr.test-logger' version '3.0.0'
-    id 'de.jansauer.printcoverage' version '2.0.0'
-    id 'jacoco'
-    id "org.jlleitschuh.gradle.ktlint" version '10.1.0'
+//    id 'maven-publish'
+    id "org.jetbrains.kotlin.jvm" //version "$kotlinVersion"
+//    id 'com.adarshr.test-logger' version '3.0.0'
+//    id 'de.jansauer.printcoverage' version '2.0.0'
+//    id 'jacoco'
+//    id "org.jlleitschuh.gradle.ktlint" version '10.1.0'
 }
 
 repositories {
@@ -25,7 +25,7 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile) {
 }
 
 dependencies {
-    api "com.guardsquare:proguard-core:${proguardCoreVersion}"
+    api project(':proguard-core')
     implementation "com.google.code.gson:gson:${gsonVersion}"
 
     testImplementation "org.jetbrains.kotlin:kotlin-stdlib:1.4.32"
@@ -47,51 +47,51 @@ jar.manifest.attributes('Implementation-Version': version)
 // Early access automatic downloads are not yet supported:
 // https://github.com/gradle/gradle/issues/14814
 // But it will work if e.g. Java 17-ea is pre-installed
-def javaVersionsForTest = 9..16
-
-test {
-    useJUnitPlatform()
-}
-
-task testAllJavaVersions() { testAllTask ->
-    dependsOn(test) // the usual test runs on Java 8
-
-    javaVersionsForTest.each {version ->
-        task("testJava$version", type: Test) {
-            useJUnitPlatform()
-            ignoreFailures = true
-
-            testAllTask.dependsOn(it)
-
-            javaLauncher = javaToolchains.launcherFor {
-                languageVersion = JavaLanguageVersion.of(version)
-            }
-        }
-    }
-}
-
-jacocoTestReport {
-    // Define which classes need to be monitored
-    def sources = files(project.sourceSets.main.allSource.srcDirs)
-    sourceDirectories.setFrom(sources)
-    additionalSourceDirs.setFrom(sources)
-    sourceDirectories.setFrom(sources)
-    def classes = files(project.sourceSets.main.output.classesDirs)
-    classDirectories.setFrom(classes)
-    executionData.setFrom project.fileTree(dir: '.', include: '**/build/jacoco/*.exec')
-    reports {
-        xml.enabled true
-        csv.enabled false
-        html.destination file("${buildDir}/reports/coverage")
-    }
-}
-
-afterEvaluate {
-    publishing {
-        publications.getByName(project.name) {
-            pom {
-                description = 'ProGuard is a free shrinker, optimizer, obfuscator, and preverifier for Java bytecode'
-            }
-        }
-    }
-}
+//def javaVersionsForTest = 9..16
+//
+//test {
+//    useJUnitPlatform()
+//}
+//
+//task testAllJavaVersions() { testAllTask ->
+//    dependsOn(test) // the usual test runs on Java 8
+//
+//    javaVersionsForTest.each {version ->
+//        task("testJava$version", type: Test) {
+//            useJUnitPlatform()
+//            ignoreFailures = true
+//
+//            testAllTask.dependsOn(it)
+//
+//            javaLauncher = javaToolchains.launcherFor {
+//                languageVersion = JavaLanguageVersion.of(version)
+//            }
+//        }
+//    }
+//}
+//
+//jacocoTestReport {
+//    // Define which classes need to be monitored
+//    def sources = files(project.sourceSets.main.allSource.srcDirs)
+//    sourceDirectories.setFrom(sources)
+//    additionalSourceDirs.setFrom(sources)
+//    sourceDirectories.setFrom(sources)
+//    def classes = files(project.sourceSets.main.output.classesDirs)
+//    classDirectories.setFrom(classes)
+//    executionData.setFrom project.fileTree(dir: '.', include: '**/build/jacoco/*.exec')
+//    reports {
+//        xml.enabled true
+//        csv.enabled false
+//        html.destination file("${buildDir}/reports/coverage")
+//    }
+//}
+//
+//afterEvaluate {
+//    publishing {
+//        publications.getByName(project.name) {
+//            pom {
+//                description = 'ProGuard is a free shrinker, optimizer, obfuscator, and preverifier for Java bytecode'
+//            }
+//        }
+//    }
+//}
