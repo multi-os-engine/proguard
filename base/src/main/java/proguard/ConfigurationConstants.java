@@ -44,7 +44,6 @@ public class ConfigurationConstants
     public static final String KEEP_NAMES_OPTION                     = "-keepnames";
     public static final String KEEP_CLASS_MEMBER_NAMES_OPTION        = "-keepclassmembernames";
     public static final String KEEP_CLASSES_WITH_MEMBER_NAMES_OPTION = "-keepclasseswithmembernames";
-    public static final String KEEP_INNERCLASSES_OPTION              = "-keepinnerclasses";
     public static final String KEEP_COMPANIONCLASSES_OPTION          = "-keepcompanionclasses";
     public static final String KEEP_CODE_OPTION                      = "-keepcode";
     public static final String INCLUDE_DESCRIPTOR_CLASSES_SUBOPTION  = "includedescriptorclasses";

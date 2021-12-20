@@ -173,7 +173,6 @@ public class ConfigurationParser
             else if (ConfigurationConstants.KEEP_CODE_OPTION                                 .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, true,  false, false, null);
             else if (ConfigurationConstants.PRINT_SEEDS_OPTION                               .startsWith(nextWord)) configuration.printSeeds                            = parseOptionalFile();
             // Special keep rule
-            else if (ConfigurationConstants.KEEP_INNERCLASSES_OPTION                         .startsWith(nextWord)) configuration.companion                             = parseCompanionClassSpecificationArguments(configuration.companion);
             else if (ConfigurationConstants.KEEP_COMPANIONCLASSES_OPTION                     .startsWith(nextWord)) configuration.companion                             = parseCompanionClassSpecificationArguments(configuration.companion);
 
             // After '-keep'.
