@@ -172,6 +172,9 @@ public class ConfigurationParser
             else if (ConfigurationConstants.KEEP_CLASSES_WITH_MEMBER_NAMES_OPTION            .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, true,  false, true,  true,  null);
             else if (ConfigurationConstants.KEEP_CODE_OPTION                                 .startsWith(nextWord)) configuration.keep                                  = parseKeepClassSpecificationArguments(configuration.keep, false, false, true,  false, false, null);
             else if (ConfigurationConstants.PRINT_SEEDS_OPTION                               .startsWith(nextWord)) configuration.printSeeds                            = parseOptionalFile();
+            // Special keep rule
+            else if (ConfigurationConstants.KEEP_INNERCLASSES_OPTION                         .startsWith(nextWord)) configuration.companion                             = parseCompanionClassSpecificationArguments(configuration.companion);
+            else if (ConfigurationConstants.KEEP_COMPANIONCLASSES_OPTION                     .startsWith(nextWord)) configuration.companion                             = parseCompanionClassSpecificationArguments(configuration.companion);
 
             // After '-keep'.
             else if (ConfigurationConstants.KEEP_DIRECTORIES_OPTION                          .startsWith(nextWord)) configuration.keepDirectories                       = parseCommaSeparatedList("directory name", true, true, false, true, false, true, true, false, false, configuration.keepDirectories);
@@ -802,12 +805,40 @@ public class ConfigurationParser
         return classSpecifications;
     }
 
+    private List<ClassSpecification> parseCompanionClassSpecificationArguments(List<ClassSpecification> classSpecifications)
+    throws ParseException, IOException
+    {
+        // Create a new List if necessary.
+        if (classSpecifications == null)
+        {
+            classSpecifications = new ArrayList();
+        }
+
+        // Read and add the keep configuration.
+        classSpecifications.add(parseClassSpecificationArguments(true, true, false));
+
+        return classSpecifications;
+    }
 
     // Added for compatibility with older versions of ProGuard (see PGD-755).
     public ClassSpecification parseClassSpecificationArguments()
     throws ParseException, IOException
     {
         return parseClassSpecificationArguments(false, true, false);
+    }
+    /**
+     * Parses and returns a class specification.
+     * For example: "public class SomeClass { public void someMethod(); }"
+     * @throws ParseException if the class specification contains a syntax error.
+     * @throws IOException    if an IO error occurs while reading the class
+     *                        specification.
+     */
+    public ClassSpecification parseClassSpecificationArguments(boolean readFirstWord,
+                                                               boolean allowClassMembers,
+                                                               boolean allowValues)
+    throws ParseException, IOException
+    {
+        return parseClassSpecificationArguments(readFirstWord, allowClassMembers, allowValues, false);
     }
 
 
@@ -820,7 +851,8 @@ public class ConfigurationParser
      */
     public ClassSpecification parseClassSpecificationArguments(boolean readFirstWord,
                                                                boolean allowClassMembers,
-                                                               boolean allowValues)
+                                                               boolean allowValues,
+                                                               boolean companionClass)
     throws ParseException, IOException
     {
         if (readFirstWord)
@@ -975,7 +1007,7 @@ public class ConfigurationParser
 
 
         // Now add any class members to this class specification.
-        if (allowClassMembers && !configurationEnd())
+        if (allowClassMembers && !configurationEnd() && !companionClass)
         {
             // Check the class member opening part.
             if (!ConfigurationConstants.OPEN_KEYWORD.equals(nextWord))
@@ -1002,6 +1034,14 @@ public class ConfigurationParser
                     break;
                 }
 
+                if (nextWord.equals(ConfigurationConstants.CLASS_KEYWORD))
+                {
+                    parseCompanionClassSpecificationArguments(externalClassName,
+                                                              allowValues,
+                                                              classSpecification);
+                    continue;
+                }
+
                 parseMemberSpecificationArguments(externalClassName,
                                                   allowValues,
                                                   classSpecification);
@@ -1011,6 +1051,13 @@ public class ConfigurationParser
         return classSpecification;
     }
 
+    private void parseCompanionClassSpecificationArguments(String             externalClassName,
+                                                           boolean            allowValues,
+                                                           ClassSpecification classSpecification)
+    throws ParseException, IOException
+    {
+        classSpecification.addClass(parseClassSpecificationArguments(false, true, allowValues, true));
+    }
 
     /**
      * Parses and adds a class member specification.

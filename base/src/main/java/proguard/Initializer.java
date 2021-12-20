@@ -330,6 +330,16 @@ public class Initializer
             }
         }
 
+        // Initialize the companion classes
+        if (configuration.companion != null) {
+            ClassCompanionInitializer companionInitializer = new ClassCompanionInitializer();
+            ClassPoolVisitor companionVisitor = new CompanionClassSpecificationVisitorFactory(programClassPool, libraryClassPool)
+                    .createClassPoolVisitor(configuration.companion, companionInitializer, companionInitializer);
+
+            programClassPool.accept(companionVisitor);
+            libraryClassPool.accept(companionVisitor);
+        }
+
         // Share strings between the classes, to reduce heap memory usage.
         programClassPool.classesAccept(new StringSharer());
         libraryClassPool.classesAccept(new StringSharer());

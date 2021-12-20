@@ -110,6 +110,8 @@ public class Configuration
      */
     public List<KeepClassSpecification> keep;
 
+    public List<ClassSpecification> companion;
+
     /**
      * An optional output file for listing the kept seeds.
      * An empty file name means the standard output.
