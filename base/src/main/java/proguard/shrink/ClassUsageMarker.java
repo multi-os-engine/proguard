@@ -180,6 +180,8 @@ implements   ClassVisitor,
         // Mark this class's name.
         markConstant(programClass, programClass.u2thisClass);
 
+        programClass.companionClassesAccept(this);
+
         // Mark the superclass.
         markOptionalConstant(programClass, programClass.u2superClass);
 
@@ -207,6 +209,8 @@ implements   ClassVisitor,
         if (shouldBeMarkedAsUsed(libraryClass))
         {
             markAsUsed(libraryClass);
+
+            libraryClass.companionClassesAccept(this);
 
             // We're not going to analyze all library code. We're assuming that
             // if this class is being used, all of its methods will be used as
