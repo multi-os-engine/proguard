@@ -331,7 +331,8 @@ implements ClassVisitor,
         // Start creating the lambda class.
         ClassBuilder classBuilder =
             new ClassBuilder(VersionConstants.CLASS_VERSION_1_2,
-                             0,
+                             // Workaround for issues that lambda class not accessible from lambda default methods
+                             AccessConstants.PUBLIC,
                              lambdaClassName,
                              ClassConstants.NAME_JAVA_LANG_OBJECT);
 
