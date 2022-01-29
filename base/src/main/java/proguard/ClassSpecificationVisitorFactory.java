@@ -366,7 +366,8 @@ public class ClassSpecificationVisitorFactory
         addMemberVisitors(methodSpecifications, false, multiClassVisitor, methodVisitor, attributeVisitor, wildcardManager);
 
         // Mark the class member in this class and in super classes.
-        return new ClassHierarchyTraveler(true, true, false, false,
+        // MOE: Mark member in current class only, we don't want to keep super members unless they are explicitly used
+        return new ClassHierarchyTraveler(true, false, false, false,
                                           multiClassVisitor);
     }
 
