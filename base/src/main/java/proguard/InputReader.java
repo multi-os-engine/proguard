@@ -20,11 +20,14 @@
  */
 package proguard;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.classfile.*;
 import proguard.classfile.kotlin.KotlinConstants;
 import proguard.classfile.util.*;
 import proguard.classfile.visitor.*;
 import proguard.io.*;
+import proguard.pass.Pass;
 import proguard.resources.file.*;
 import proguard.resources.file.io.ResourceFileDataEntryReader;
 import proguard.resources.file.visitor.*;
@@ -34,12 +37,14 @@ import proguard.util.*;
 import java.io.*;
 
 /**
- * This class reads the input class files.
+ * This pass reads the input class files.
  *
  * @author Eric Lafortune
  */
-public class InputReader
+public class InputReader implements Pass
 {
+    private static final Logger logger = LogManager.getLogger(InputReader.class);
+
     // Option to favor library classes over program classes, in case of
     // duplicates.
     // https://sourceforge.net/p/proguard/discussion/182455/thread/76430d9e
@@ -52,7 +57,6 @@ public class InputReader
     // feature names to classes and resource files.
     private String featureName;
 
-
     /**
      * Creates a new InputReader to read input class files as specified by the
      * given configuration.
@@ -64,28 +68,29 @@ public class InputReader
 
 
     /**
-     * Fills the given program class pool, library class pool, and resource file
+     * Fills the program class pool, library class pool, and resource file
      * pool by reading files based on the current configuration.
      */
-    public void execute(ClassPool        programClassPool,
-                        ClassPool        libraryClassPool,
-                        ResourceFilePool resourceFilePool) throws IOException
+    @Override
+    public void execute(AppView appView) throws IOException
     {
+        logger.info("Reading input...");
+
         // We're using the system's default character encoding for writing to
         // the standard output and error output.
         PrintWriter out = new PrintWriter(System.out, true);
         PrintWriter err = new PrintWriter(System.err, true);
 
-        WarningPrinter notePrinter    = new WarningPrinter(out, configuration.note);
-        WarningPrinter warningPrinter = new WarningPrinter(err, configuration.warn);
+        WarningPrinter notePrinter    = new WarningLogger(logger, configuration.note);
+        WarningPrinter warningPrinter = new WarningLogger(logger, configuration.warn);
 
         DuplicateClassPrinter        duplicateClassPrinter        = new DuplicateClassPrinter(notePrinter);
         DuplicateResourceFilePrinter duplicateResourceFilePrinter = new DuplicateResourceFilePrinter(notePrinter);
 
         ClassVisitor classPoolFiller =
-            new ClassPresenceFilter(programClassPool, duplicateClassPrinter,
+            new ClassPresenceFilter(appView.programClassPool, duplicateClassPrinter,
             new MultiClassVisitor(
-                new ClassPoolFiller(programClassPool),
+                new ClassPoolFiller(appView.programClassPool),
                 // Attach the current resource name, if any, to any program classes that it visits.
                 new ProgramClassFilter(clazz -> clazz.setFeatureName(featureName))));
 
@@ -113,9 +118,9 @@ public class InputReader
         // Create a visitor and a reader to fill the resource file pool with
         // plain resource file instances (while checking for duplicates).
         ResourceFileVisitor resourceFilePoolFiller =
-            new ResourceFilePresenceFilter(resourceFilePool, duplicateResourceFilePrinter,
+            new ResourceFilePresenceFilter(appView.resourceFilePool, duplicateResourceFilePrinter,
             new MultiResourceFileVisitor(
-                new ResourceFilePoolFiller(resourceFilePool),
+                new ResourceFilePoolFiller(appView.resourceFilePool),
                 new MyResourceFileFeatureNameSetter()));
 
         DataEntryReader resourceReader =
@@ -138,7 +143,7 @@ public class InputReader
                                   resourceReader));
 
         // Check if we have at least some input classes.
-        if (programClassPool.size() == 0)
+        if (appView.programClassPool.size() == 0)
         {
             throw new IOException("The input doesn't contain any classes. Did you specify the proper '-injars' options?");
         }
@@ -162,34 +167,32 @@ public class InputReader
                                       configuration.skipNonPublicLibraryClassMembers,
                                       true,
                                       warningPrinter,
-                      new ClassPresenceFilter(programClassPool, duplicateClassPrinter,
-                      new ClassPresenceFilter(libraryClassPool, duplicateClassPrinter,
-                      new ClassPoolFiller(libraryClassPool))))));
+                      new ClassPresenceFilter(appView.programClassPool, duplicateClassPrinter,
+                      new ClassPresenceFilter(appView.libraryClassPool, duplicateClassPrinter,
+                      new ClassPoolFiller(appView.libraryClassPool))))));
         }
 
         // Print out a summary of the notes, if necessary.
         int noteCount = notePrinter.getWarningCount();
         if (noteCount > 0)
         {
-            err.println("Note: there were " + noteCount +
-                        " duplicate class definitions.");
-            err.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#duplicateclass)");
+            logger.warn("Note: there were {} duplicate class definitions.", noteCount);
+            logger.warn("      (https://www.guardsquare.com/proguard/manual/troubleshooting#duplicateclass)");
         }
 
         // Print out a summary of the warnings, if necessary.
         int warningCount = warningPrinter.getWarningCount();
         if (warningCount > 0)
         {
-            err.println("Warning: there were " + warningCount +
-                        " classes in incorrectly named files.");
-            err.println("         You should make sure all file names correspond to their class names.");
-            err.println("         The directory hierarchies must correspond to the package hierarchies.");
-            err.println("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unexpectedclass)");
+            logger.warn("Warning: there were {} classes in incorrectly named files.", warningCount);
+            logger.warn("         You should make sure all file names correspond to their class names.");
+            logger.warn("         The directory hierarchies must correspond to the package hierarchies.");
+            logger.warn("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unexpectedclass)");
 
             if (!configuration.ignoreWarnings)
             {
-                err.println("         If you don't mind the mentioned classes not being written out,");
-                err.println("         you could try your luck using the '-ignorewarnings' option.");
+                logger.warn("         If you don't mind the mentioned classes not being written out,");
+                logger.warn("         you could try your luck using the '-ignorewarnings' option.");
                 throw new IOException("Please correct the above warnings first.");
             }
         }
@@ -263,7 +266,7 @@ public class InputReader
         }
         catch (IOException ex)
         {
-            throw (IOException)new IOException("Can't read [" + classPathEntry + "] (" + ex.getMessage() + ")").initCause(ex);
+            throw new IOException("Can't read [" + classPathEntry + "] (" + ex.getMessage() + ")", ex);
         }
     }
 

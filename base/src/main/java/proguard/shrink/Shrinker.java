@@ -20,45 +20,58 @@
  */
 package proguard.shrink;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.*;
 import proguard.classfile.*;
 import proguard.classfile.kotlin.visitor.ReferencedKotlinMetadataVisitor;
+import proguard.classfile.util.WarningLogger;
 import proguard.fixer.kotlin.KotlinAnnotationFlagFixer;
 import proguard.resources.file.visitor.ResourceFileProcessingFlagFilter;
-import proguard.util.kotlin.asserter.KotlinMetadataAsserter;
-import proguard.classfile.util.WarningPrinter;
 import proguard.classfile.visitor.*;
-import proguard.resources.file.ResourceFilePool;
+import proguard.pass.Pass;
 import proguard.util.*;
 
 import java.io.*;
 
 /**
- * This class shrinks class pools according to a given configuration.
+ * This pass shrinks class pools according to a given configuration.
  *
  * @author Eric Lafortune
  */
-public class Shrinker
+public class Shrinker implements Pass
 {
+    private static final Logger logger = LogManager.getLogger(Shrinker.class);
     private final Configuration configuration;
+    private final boolean       afterOptimizer;
 
-
-    /**
-     * Creates a new Shrinker.
-     */
-    public Shrinker(Configuration configuration)
+    public Shrinker(Configuration configuration, boolean afterOptimizer)
     {
-        this.configuration = configuration;
+        this.configuration  = configuration;
+        this.afterOptimizer = afterOptimizer;
     }
 
 
     /**
      * Performs shrinking of the given program class pool.
      */
-    public ClassPool execute(ClassPool        programClassPool,
-                             ClassPool        libraryClassPool,
-                             ResourceFilePool resourceFilePool) throws IOException
+    @Override
+    public void execute(AppView appView) throws IOException
     {
+        logger.info("Shrinking...");
+
+        // We'll print out some explanation, if requested.
+        if (configuration.whyAreYouKeeping != null && !afterOptimizer)
+        {
+            logger.info("Explaining why classes and class members are being kept...");
+        }
+
+        // We'll print out the usage, if requested.
+        if (configuration.printUsage != null && !afterOptimizer)
+        {
+            logger.info("Printing usage to [" + PrintWriterUtil.fileName(configuration.printUsage) + "]...");
+        }
+
         // Check if we have at least some keep commands.
         if (configuration.keep == null)
         {
@@ -70,32 +83,31 @@ public class Shrinker
         PrintWriter out = new PrintWriter(System.out, true);
 
         // Clean up any old processing info.
-        programClassPool.classesAccept(new ClassCleaner());
-        libraryClassPool.classesAccept(new ClassCleaner());
+        appView.programClassPool.classesAccept(new ClassCleaner());
+        appView.libraryClassPool.classesAccept(new ClassCleaner());
 
         // Create a visitor for marking the seeds.
-        SimpleUsageMarker simpleUsageMarker = configuration.whyAreYouKeeping == null ?
+        SimpleUsageMarker simpleUsageMarker = configuration.whyAreYouKeeping == null || afterOptimizer ?
             new SimpleUsageMarker() :
             new ShortestUsageMarker();
 
          // Create a usage marker for resources and code, tracing the reasons
          // if specified.
-         ClassUsageMarker classUsageMarker = configuration.whyAreYouKeeping == null ?
+         ClassUsageMarker classUsageMarker = configuration.whyAreYouKeeping == null || afterOptimizer ?
              new ClassUsageMarker(simpleUsageMarker) :
              new ShortestClassUsageMarker((ShortestUsageMarker) simpleUsageMarker,
                                           "is kept by a directive in the configuration.\n\n");
 
         // Mark all used code and resources and resource files.
-        new UsageMarker(configuration).mark(programClassPool,
-                                            libraryClassPool,
-                                            resourceFilePool,
-                                            simpleUsageMarker,
-                                            classUsageMarker);
+        new UsageMarker(configuration).mark(appView.programClassPool,
+                                                    appView.libraryClassPool,
+                                                    appView.resourceFilePool,
+                                                    simpleUsageMarker,
+                                                    classUsageMarker);
 
         // Should we explain ourselves?
-        if (configuration.whyAreYouKeeping != null)
+        if (configuration.whyAreYouKeeping != null && !afterOptimizer)
         {
-            out.println();
 
             // Create a visitor for explaining classes and class members.
             ShortestUsagePrinter shortestUsagePrinter =
@@ -110,11 +122,11 @@ public class Shrinker
                                             shortestUsagePrinter);
 
             // Mark the seeds.
-            programClassPool.accept(whyClassPoolvisitor);
-            libraryClassPool.accept(whyClassPoolvisitor);
+            appView.programClassPool.accept(whyClassPoolvisitor);
+            appView.libraryClassPool.accept(whyClassPoolvisitor);
         }
 
-        if (configuration.printUsage != null)
+        if (configuration.printUsage != null && !afterOptimizer)
         {
             PrintWriter usageWriter =
                 PrintWriterUtil.createPrintWriterOut(configuration.printUsage);
@@ -122,7 +134,7 @@ public class Shrinker
             try
             {
                 // Print out items that will be removed.
-                programClassPool.classesAcceptAlphabetically(
+                appView.programClassPool.classesAcceptAlphabetically(
                     new UsagePrinter(simpleUsageMarker, true, usageWriter));
             }
             finally
@@ -134,14 +146,14 @@ public class Shrinker
 
         // Clean up used program classes and discard unused program classes.
         ClassPool newProgramClassPool = new ClassPool();
-        programClassPool.classesAccept(
+        appView.programClassPool.classesAccept(
             new UsedClassFilter(simpleUsageMarker,
             new MultiClassVisitor(
                 new ClassShrinker(simpleUsageMarker),
                 new ClassPoolFiller(newProgramClassPool)
             )));
 
-        libraryClassPool.classesAccept(
+        appView.libraryClassPool.classesAccept(
             new UsedClassFilter(simpleUsageMarker,
             new ClassShrinker(simpleUsageMarker)));
 
@@ -157,43 +169,30 @@ public class Shrinker
                 new KotlinAnnotationFlagFixer()));
 
             // Shrink the content of the Kotlin module files.
-            resourceFilePool.resourceFilesAccept(
+            appView.resourceFilePool.resourceFilesAccept(
                 new ResourceFileProcessingFlagFilter(0, ProcessingFlags.DONT_PROCESS_KOTLIN_MODULE,
                                                      new KotlinModuleShrinker(simpleUsageMarker)));
-
-            if (configuration.enableKotlinAsserter)
-            {
-                WarningPrinter warningPrinter = new WarningPrinter(new PrintWriter(System.err, true));
-                new KotlinMetadataAsserter()
-                    .execute(programClassPool,
-                             libraryClassPool,
-                             resourceFilePool,
-                             warningPrinter);
-            }
         }
 
         int newProgramClassPoolSize = newProgramClassPool.size();
 
         // Collect some statistics.
-        if (configuration.verbose)
+       ClassCounter originalClassCounter = new ClassCounter();
+        appView.programClassPool.classesAccept(
+           new ClassProcessingFlagFilter(0, ProcessingFlags.INJECTED,
+                                         originalClassCounter));
+
+       ClassCounter newClassCounter = new ClassCounter();
+       newProgramClassPool.classesAccept(
+           new ClassProcessingFlagFilter(0, ProcessingFlags.INJECTED,
+           newClassCounter));
+
+        logger.info("Removing unused program classes and class elements...");
+        logger.info("  Original number of program classes:            {}", originalClassCounter.getCount());
+        logger.info("  Final number of program classes:               {}", newClassCounter.getCount());
+        if (newClassCounter.getCount() != newProgramClassPoolSize)
         {
-           ClassCounter originalClassCounter = new ClassCounter();
-           programClassPool.classesAccept(
-               new ClassProcessingFlagFilter(0, ProcessingFlags.INJECTED,
-                                             originalClassCounter));
-
-           ClassCounter newClassCounter = new ClassCounter();
-           newProgramClassPool.classesAccept(
-               new ClassProcessingFlagFilter(0, ProcessingFlags.INJECTED,
-               newClassCounter));
-
-            out.println("Removing unused program classes and class elements...");
-            out.println("  Original number of program classes:            " + originalClassCounter.getCount());
-            out.println("  Final number of program classes:               " + newClassCounter.getCount());
-            if (newClassCounter.getCount() != newProgramClassPoolSize)
-            {
-                out.println("  Final number of program and injected classes:  " + newProgramClassPoolSize);
-            }
+            logger.info("  Final number of program and injected classes:  {}", newProgramClassPoolSize);
         }
 
         // Check if we have at least some output classes.
@@ -202,7 +201,7 @@ public class Shrinker
         {
             if (configuration.ignoreWarnings)
             {
-                System.err.println("Warning: the output jar is empty. Did you specify the proper '-keep' options?");
+                logger.warn("Warning: the output jar is empty. Did you specify the proper '-keep' options?");
             }
             else
             {
@@ -210,6 +209,7 @@ public class Shrinker
             }
         }
 
-        return newProgramClassPool;
+        appView.programClassPool.clear();
+        newProgramClassPool.classesAccept(new ClassPoolFiller(appView.programClassPool));
     }
 }

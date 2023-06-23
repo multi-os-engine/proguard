@@ -20,8 +20,11 @@
  */
 package proguard;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.classfile.*;
 import proguard.classfile.util.ClassUtil;
+import proguard.optimize.Optimizer;
 import proguard.util.*;
 
 import java.io.*;
@@ -33,8 +36,10 @@ import java.util.*;
  *
  * @author Eric Lafortune
  */
-public class ConfigurationWriter
+public class ConfigurationWriter implements AutoCloseable
 {
+    private static final Logger logger = LogManager.getLogger(ConfigurationWriter.class);
+
     private static final String[] KEEP_OPTIONS = new String[]
     {
         ConfigurationConstants.KEEP_OPTION,
@@ -71,9 +76,10 @@ public class ConfigurationWriter
     /**
      * Closes this ConfigurationWriter.
      */
+    @Override
     public void close() throws IOException
     {
-        writer.close();
+        PrintWriterUtil.closePrintWriter(baseDir, writer);
     }
 
 
@@ -84,6 +90,8 @@ public class ConfigurationWriter
      */
     public void write(Configuration configuration) throws IOException
     {
+        logger.info("Printing configuration to [{}]...", PrintWriterUtil.fileName(configuration.printConfiguration));
+
         // Write the program class path (input and output entries).
         writeJarOptions(ConfigurationConstants.INJARS_OPTION,
                         ConfigurationConstants.OUTJARS_OPTION,
@@ -823,10 +831,8 @@ public class ConfigurationWriter
      */
     public static void main(String[] args)
     {
-        try
+        try (ConfigurationWriter writer = new ConfigurationWriter(new File(args[0])))
         {
-            ConfigurationWriter writer = new ConfigurationWriter(new File(args[0]));
-
             writer.write(new Configuration());
         }
         catch (Exception ex)

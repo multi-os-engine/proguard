@@ -33,6 +33,7 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.List;
+import java.util.prefs.Preferences;
 
 
 /**
@@ -58,6 +59,8 @@ public class ProGuardGUI extends JFrame
     private static final Border BORDER = BorderFactory.createEtchedBorder(EtchedBorder.RAISED);
 
     static boolean systemOutRedirected;
+
+    private static final Preferences PREFS = Preferences.userRoot().node(ProGuardGUI.class.getName());
 
     private final JFileChooser configurationChooser = new JFileChooser("");
     private final JFileChooser fileChooser          = new JFileChooser("");
@@ -690,14 +693,12 @@ public class ProGuardGUI extends JFrame
         try
         {
             // Parse the boilerplate configuration file.
-            ConfigurationParser parser = new ConfigurationParser(
+            try (ConfigurationParser parser = new ConfigurationParser(
                 this.getClass().getResource(BOILERPLATE_CONFIGURATION),
-                System.getProperties());
-
-            Configuration configuration = new Configuration();
-
-            try
+                System.getProperties()))
             {
+                Configuration configuration = new Configuration();
+
                 parser.parse(configuration);
 
                 // We're interested in the keep options.
@@ -711,10 +712,6 @@ public class ProGuardGUI extends JFrame
                 // We're interested in the side effects options.
                 boilerplateNoSideEffectMethods = new ClassSpecification[configuration.assumeNoSideEffects.size()];
                 configuration.assumeNoSideEffects.toArray(boilerplateNoSideEffectMethods);
-            }
-            finally
-            {
-                parser.close();
             }
         }
         catch (Exception ex)
@@ -962,6 +959,8 @@ public class ProGuardGUI extends JFrame
         {
             public void actionPerformed(ActionEvent e)
             {
+                fileChooser.setCurrentDirectory(new File(PREFS.get("LAST_MAPPING_FILE", new File(".").getAbsolutePath())));
+
                 // Update the file chooser.
                 fileChooser.setDialogTitle(title);
                 fileChooser.setSelectedFile(new File(textField.getText()));
@@ -971,6 +970,8 @@ public class ProGuardGUI extends JFrame
                 {
                     // Update the text field.
                     textField.setText(fileChooser.getSelectedFile().getPath());
+                    // Save the last opened folder for the next usage of this panel (it's kept even on app restarts)
+                    PREFS.put("LAST_MAPPING_FILE", fileChooser.getSelectedFile().getAbsolutePath());
                 }
             }
         });
@@ -1107,7 +1108,7 @@ public class ProGuardGUI extends JFrame
         optimizeCheckBox                        .setSelected(configuration.optimize);
         allowAccessModificationCheckBox         .setSelected(configuration.allowAccessModification);
         mergeInterfacesAggressivelyCheckBox     .setSelected(configuration.mergeInterfacesAggressively);
-        optimizationPassesSpinner.getModel()    .setValue(new Integer(configuration.optimizationPasses));
+        optimizationPassesSpinner.getModel()    .setValue(configuration.optimizationPasses);
 
         obfuscateCheckBox                       .setSelected(configuration.obfuscate);
         printMappingCheckBox                    .setSelected(configuration.printMapping                  != null);
@@ -1179,6 +1180,10 @@ public class ProGuardGUI extends JFrame
         if (configuration.printMapping != null)
         {
             reTraceMappingTextField.setText(fileName(configuration.printMapping));
+        }
+        else
+        {
+            reTraceMappingTextField.setText(PREFS.get("LAST_MAPPING_FILE", ""));
         }
     }
 
@@ -1459,13 +1464,11 @@ public class ProGuardGUI extends JFrame
         try
         {
             // Parse the configuration file.
-            ConfigurationParser parser = new ConfigurationParser(file,
-                                                                 System.getProperties());
-
-            Configuration configuration = new Configuration();
-
-            try
+            try (ConfigurationParser parser = new ConfigurationParser(file,
+                                                                      System.getProperties()))
             {
+                Configuration configuration = new Configuration();
+
                 parser.parse(configuration);
 
                 // Let the GUI reflect the configuration.
@@ -1477,10 +1480,6 @@ public class ProGuardGUI extends JFrame
                                               msg("cantParseConfigurationFile", file.getPath()),
                                               msg("warning"),
                                               JOptionPane.ERROR_MESSAGE);
-            }
-            finally
-            {
-                parser.close();
             }
         }
         catch (IOException ex)
@@ -1501,13 +1500,11 @@ public class ProGuardGUI extends JFrame
         try
         {
             // Parse the configuration file.
-            ConfigurationParser parser = new ConfigurationParser(url,
-                                                                 System.getProperties());
-
-            Configuration configuration = new Configuration();
-
-            try
+            try (ConfigurationParser parser = new ConfigurationParser(url,
+                                                                      System.getProperties()))
             {
+                Configuration configuration = new Configuration();
+
                 parser.parse(configuration);
 
                 // Let the GUI reflect the configuration.
@@ -1519,10 +1516,6 @@ public class ProGuardGUI extends JFrame
                                               msg("cantParseConfigurationFile", url),
                                               msg("warning"),
                                               JOptionPane.ERROR_MESSAGE);
-            }
-            finally
-            {
-                parser.close();
             }
         }
         catch (IOException ex)
@@ -1543,15 +1536,10 @@ public class ProGuardGUI extends JFrame
         try
         {
             // Save the configuration file.
-            ConfigurationWriter writer = new ConfigurationWriter(file);
-
-            try
+            Configuration configuration = getProGuardConfiguration();
+            try (ConfigurationWriter writer = new ConfigurationWriter(file))
             {
-                writer.write(getProGuardConfiguration());
-            }
-            finally
-            {
-                writer.close();
+                writer.write(configuration);
             }
         }
         catch (Exception ex)
@@ -1669,16 +1657,11 @@ public class ProGuardGUI extends JFrame
                     // TODO: write out relative path names and path names with system properties.
 
                     // Write the configuration.
-                    ConfigurationWriter configurationWriter =
-                        new ConfigurationWriter(printWriter);
-
-                    try
+                    Configuration configuration = getProGuardConfiguration();
+                    try (ConfigurationWriter configurationWriter =
+                                 new ConfigurationWriter(printWriter))
                     {
-                        configurationWriter.write(getProGuardConfiguration());
-                    }
-                    finally
-                    {
-                        configurationWriter.close();
+                        configurationWriter.write(configuration);
                     }
                 }
                 catch (IOException ignore)
@@ -1756,11 +1739,9 @@ public class ProGuardGUI extends JFrame
             if (!systemOutRedirected)
             {
                 systemOutRedirected = true;
-
                 boolean verbose            = reTraceVerboseCheckBox.isSelected();
                 File    retraceMappingFile = new File(reTraceMappingTextField.getText());
                 String  stackTrace         = stackTraceTextArea.getText();
-
                 // Create the ReTrace runnable.
                 Runnable reTraceRunnable = new ReTraceRunnable(reTraceTextArea,
                                                                verbose,
@@ -1769,6 +1750,7 @@ public class ProGuardGUI extends JFrame
 
                 // Run it in this thread, because it won't take long anyway.
                 reTraceRunnable.run();
+                systemOutRedirected = false;
             }
         }
     }
@@ -1910,8 +1892,28 @@ public class ProGuardGUI extends JFrame
 
                         Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
                         Dimension guiSize    = gui.getSize();
-                        gui.setLocation((screenSize.width - guiSize.width)   / 2,
-                                        (screenSize.height - guiSize.height) / 2);
+                        gui.setSize(
+                                new Dimension(
+                                        PREFS.getInt("width", gui.getWidth()),
+                                        PREFS.getInt("height", gui.getHeight())
+                                )
+                        );
+
+                        gui.setLocation(new Point(
+                                PREFS.getInt("x", (screenSize.width - guiSize.width) / 2),
+                                PREFS.getInt("y", (screenSize.height - guiSize.height) / 2)
+                        ));
+
+                        gui.addWindowListener(new WindowAdapter() {
+                            public void windowClosing(WindowEvent e) {
+                                PREFS.putInt("width", gui.getWidth());
+                                PREFS.putInt("height", gui.getHeight());
+
+                                PREFS.putInt("x", gui.getLocation().x);
+                                PREFS.putInt("y", gui.getLocation().y);
+                            }
+                        });
+
                         gui.show();
 
                         // Start the splash animation, unless specified otherwise.

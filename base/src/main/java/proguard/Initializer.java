@@ -2,7 +2,7 @@
  * ProGuard -- shrinking, optimization, obfuscation, and preverification
  *             of Java bytecode.
  *
- * Copyright (c) 2002-2020 Guardsquare NV
+ * Copyright (c) 2002-2022 Guardsquare NV
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -20,6 +20,8 @@
  */
 package proguard;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.classfile.*;
 import proguard.classfile.attribute.Attribute;
 import proguard.classfile.attribute.annotation.visitor.*;
@@ -30,39 +32,27 @@ import proguard.classfile.kotlin.*;
 import proguard.classfile.util.*;
 import proguard.classfile.util.kotlin.KotlinMetadataInitializer;
 import proguard.classfile.visitor.*;
-import proguard.resources.file.ResourceFilePool;
+import proguard.pass.Pass;
 import proguard.resources.file.visitor.ResourceJavaReferenceClassInitializer;
 import proguard.resources.kotlinmodule.util.KotlinModuleReferenceInitializer;
 import proguard.util.*;
-import proguard.util.kotlin.asserter.KotlinMetadataAsserter;
 
 import java.io.*;
 import java.util.*;
 
 /**
- * This class initializes class pools and resource information.
+ * This pass initializes class pools and resource information.
  *
  * @author Eric Lafortune
  */
-public class Initializer
+public class Initializer implements Pass
 {
+    private static final Logger logger = LogManager.getLogger(Initializer.class);
     private final Configuration configuration;
-    private final boolean       checkConfiguration;
 
-
-    /**
-     * Creates a new Initializer to initialize classes according to the given
-     * configuration.
-     */
     public Initializer(Configuration configuration)
     {
         this.configuration = configuration;
-
-        // Only check the configuration if either shrinking, optimization or obfuscation is enabled,
-        // in other cases the configuration does not have any effect. This will speed up pure debug builds.
-        this.checkConfiguration = configuration.shrink   ||
-                                  configuration.optimize ||
-                                  configuration.obfuscate;
     }
 
 
@@ -70,26 +60,25 @@ public class Initializer
      * Initializes the classes in the given program class pool and library class
      * pool, performs some basic checks, and shrinks the library class pool.
      */
-    public void execute(ClassPool        programClassPool,
-                        ClassPool        libraryClassPool,
-                        ResourceFilePool resourceFilePool)
-    throws IOException
+    @Override
+    public void execute(AppView appView) throws IOException
     {
-        // We're using the system's default character encoding for writing to
-        // the standard output and error output.
-        PrintWriter out = new PrintWriter(System.out, true);
-        PrintWriter err = new PrintWriter(System.err, true);
+        logger.info("Initializing...");
 
-        int originalLibraryClassPoolSize = libraryClassPool.size();
+        boolean checkConfiguration = configuration.shrink   ||
+                                     configuration.optimize ||
+                                     configuration.obfuscate;
+
+        int originalLibraryClassPoolSize = appView.libraryClassPool.size();
 
         // Perform basic checks on the configuration.
-        WarningPrinter fullyQualifiedClassNameNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter fullyQualifiedClassNameNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (checkConfiguration)
         {
             FullyQualifiedClassNameChecker fullyQualifiedClassNameChecker =
-                new FullyQualifiedClassNameChecker(programClassPool,
-                                                   libraryClassPool,
+                new FullyQualifiedClassNameChecker(appView.programClassPool,
+                                                   appView.libraryClassPool,
                                                    fullyQualifiedClassNameNotePrinter);
 
             fullyQualifiedClassNameChecker.checkClassSpecifications(configuration.keep);
@@ -103,38 +92,38 @@ public class Initializer
             new ListParser(new NameParser()).parse(configuration.keepAttributes) :
             new EmptyStringMatcher();
 
-        WarningPrinter getAnnotationNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter getAnnotationNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (!keepAttributesMatcher.matches(Attribute.RUNTIME_VISIBLE_ANNOTATIONS))
         {
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new AllConstantVisitor(
                 new GetAnnotationChecker(getAnnotationNotePrinter)));
         }
 
-        WarningPrinter getSignatureNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter getSignatureNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (!keepAttributesMatcher.matches(Attribute.SIGNATURE))
         {
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new AllConstantVisitor(
                 new GetSignatureChecker(getSignatureNotePrinter)));
         }
 
-        WarningPrinter getEnclosingClassNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter getEnclosingClassNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (!keepAttributesMatcher.matches(Attribute.INNER_CLASSES))
         {
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new AllConstantVisitor(
                 new GetEnclosingClassChecker(getEnclosingClassNotePrinter)));
         }
 
-        WarningPrinter getEnclosingMethodNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter getEnclosingMethodNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (!keepAttributesMatcher.matches(Attribute.ENCLOSING_METHOD))
         {
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new AllConstantVisitor(
                 new GetEnclosingMethodChecker(getEnclosingMethodNotePrinter)));
         }
@@ -146,25 +135,25 @@ public class Initializer
         ClassPool reducedLibraryClassPool = configuration.useUniqueClassMemberNames ?
             null : new ClassPool();
 
-        WarningPrinter classReferenceWarningPrinter = new WarningPrinter(err, configuration.warn);
-        WarningPrinter dependencyWarningPrinter     = new WarningPrinter(err, configuration.warn);
+        WarningPrinter classReferenceWarningPrinter = new WarningLogger(logger, configuration.warn);
+        WarningPrinter dependencyWarningPrinter     = new WarningLogger(logger, configuration.warn);
 
         // Initialize the superclass hierarchies for program classes.
-        programClassPool.classesAccept(
-            new ClassSuperHierarchyInitializer(programClassPool,
-                                               libraryClassPool,
+        appView.programClassPool.classesAccept(
+            new ClassSuperHierarchyInitializer(appView.programClassPool,
+                                               appView.libraryClassPool,
                                                classReferenceWarningPrinter,
                                                null));
 
         // Initialize the superclass hierarchy of all library classes, without
         // warnings.
-        libraryClassPool.classesAccept(
-            new ClassSuperHierarchyInitializer(programClassPool,
-                                               libraryClassPool,
+        appView.libraryClassPool.classesAccept(
+            new ClassSuperHierarchyInitializer(appView.programClassPool,
+                                               appView.libraryClassPool,
                                                null,
                                                dependencyWarningPrinter));
 
-        WarningPrinter kotlinInitializationWarningPrinter = new WarningPrinter(err, configuration.warn);
+        WarningPrinter kotlinInitializationWarningPrinter = new WarningLogger(logger, configuration.warn);
 
         // Initialize the Kotlin Metadata for Kotlin classes.
         if (configuration.keepKotlinMetadata)
@@ -176,19 +165,19 @@ public class Initializer
                 new AnnotationTypeFilter(KotlinConstants.TYPE_KOTLIN_METADATA,
                 new KotlinMetadataInitializer(kotlinInitializationWarningPrinter)))));
 
-            programClassPool.classesAccept(kotlinMetadataInitializer);
-            libraryClassPool.classesAccept(kotlinMetadataInitializer);
+            appView.programClassPool.classesAccept(kotlinMetadataInitializer);
+            appView.libraryClassPool.classesAccept(kotlinMetadataInitializer);
         }
 
         // Initialize the class references of program class members and
         // attributes. Note that all superclass hierarchies have to be
         // initialized for this purpose.
-        WarningPrinter programMemberReferenceWarningPrinter = new WarningPrinter(err, configuration.warn);
-        WarningPrinter libraryMemberReferenceWarningPrinter = new WarningPrinter(err, configuration.warn);
+        WarningPrinter programMemberReferenceWarningPrinter = new WarningLogger(logger, configuration.warn);
+        WarningPrinter libraryMemberReferenceWarningPrinter = new WarningLogger(logger, configuration.warn);
 
-        programClassPool.classesAccept(
-            new ClassReferenceInitializer(programClassPool,
-                                          libraryClassPool,
+        appView.programClassPool.classesAccept(
+            new ClassReferenceInitializer(appView.programClassPool,
+                                          appView.libraryClassPool,
                                           classReferenceWarningPrinter,
                                           programMemberReferenceWarningPrinter,
                                           libraryMemberReferenceWarningPrinter,
@@ -198,7 +187,7 @@ public class Initializer
         {
             // Collect the library classes that are directly referenced by
             // program classes, without reflection.
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new ReferencedClassVisitor(true,
                 new LibraryClassFilter(
                 new ClassPoolFiller(reducedLibraryClassPool))));
@@ -206,41 +195,41 @@ public class Initializer
             // Reinitialize the superclass hierarchies of referenced library
             // classes, this time with warnings.
             reducedLibraryClassPool.classesAccept(
-                new ClassSuperHierarchyInitializer(programClassPool,
-                                                   libraryClassPool,
+                new ClassSuperHierarchyInitializer(appView.programClassPool,
+                                                   appView.libraryClassPool,
                                                    classReferenceWarningPrinter,
                                                    null));
         }
 
         // Initialize the enum annotation references.
-        programClassPool.classesAccept(
+        appView.programClassPool.classesAccept(
             new AllAttributeVisitor(true,
             new AllElementValueVisitor(true,
             new EnumFieldReferenceInitializer())));
 
         // Initialize the Class.forName references.
-        WarningPrinter dynamicClassReferenceNotePrinter = new WarningPrinter(out, configuration.note);
-        WarningPrinter classForNameNotePrinter          = new WarningPrinter(out, configuration.note);
+        WarningPrinter dynamicClassReferenceNotePrinter = new WarningLogger(logger, configuration.note);
+        WarningPrinter classForNameNotePrinter          = new WarningLogger(logger, configuration.note);
 
-        programClassPool.classesAccept(
+        appView.programClassPool.classesAccept(
             new AllMethodVisitor(
             new AllAttributeVisitor(
             new AllInstructionVisitor(
-            new DynamicClassReferenceInitializer(programClassPool,
-                                                 libraryClassPool,
+            new DynamicClassReferenceInitializer(appView.programClassPool,
+                                                 appView.libraryClassPool,
                                                  dynamicClassReferenceNotePrinter,
                                                  null,
                                                  classForNameNotePrinter,
                                                  createClassNoteExceptionMatcher(configuration.keep, true))))));
 
         // Initialize the Class.get[Declared]{Field,Method} references.
-        WarningPrinter getMemberNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter getMemberNotePrinter = new WarningLogger(logger, configuration.note);
 
-        programClassPool.classesAccept(
+        appView.programClassPool.classesAccept(
             new AllMethodVisitor(
             new AllAttributeVisitor(
-            new DynamicMemberReferenceInitializer(programClassPool,
-                                                  libraryClassPool,
+            new DynamicMemberReferenceInitializer(appView.programClassPool,
+                                                  appView.libraryClassPool,
                                                   getMemberNotePrinter,
                                                   createClassMemberNoteExceptionMatcher(configuration.keep, true),
                                                   createClassMemberNoteExceptionMatcher(configuration.keep, false)))));
@@ -248,11 +237,11 @@ public class Initializer
         // Initialize other string constant references, if requested.
         if (configuration.adaptClassStrings != null)
         {
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new ClassNameFilter(configuration.adaptClassStrings,
                 new AllConstantVisitor(
-                new StringReferenceInitializer(programClassPool,
-                                               libraryClassPool))));
+                new StringReferenceInitializer(appView.programClassPool,
+                                               appView.libraryClassPool))));
         }
 
         // Initialize the class references of library class members.
@@ -260,7 +249,7 @@ public class Initializer
         {
             // Collect the library classes that are referenced by program
             // classes, directly or indirectly, with or without reflection.
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new ReferencedClassVisitor(
                 new LibraryClassFilter(
                 new ClassHierarchyTraveler(true, true, true, false,
@@ -270,15 +259,15 @@ public class Initializer
             // Initialize the class references of referenced library
             // classes, without warnings.
             reducedLibraryClassPool.classesAccept(
-                new ClassReferenceInitializer(programClassPool,
-                                              libraryClassPool,
+                new ClassReferenceInitializer(appView.programClassPool,
+                                              appView.libraryClassPool,
                                               null,
                                               null,
                                               null,
                                               dependencyWarningPrinter));
 
             // Reset the library class pool.
-            libraryClassPool.clear();
+            appView.libraryClassPool.clear();
 
             // Copy the library classes that are referenced directly by program
             // classes and the library classes that are referenced by referenced
@@ -287,21 +276,21 @@ public class Initializer
                 new MultiClassVisitor(
                     new ClassHierarchyTraveler(true, true, true, false,
                     new LibraryClassFilter(
-                    new ClassPoolFiller(libraryClassPool))),
+                    new ClassPoolFiller(appView.libraryClassPool))),
 
                     new ReferencedClassVisitor(
                     new LibraryClassFilter(
                     new ClassHierarchyTraveler(true, true, true, false,
                     new LibraryClassFilter(
-                    new ClassPoolFiller(libraryClassPool)))))
+                    new ClassPoolFiller(appView.libraryClassPool)))))
                 ));
         }
         else
         {
             // Initialize the class references of all library class members.
-            libraryClassPool.classesAccept(
-                new ClassReferenceInitializer(programClassPool,
-                                              libraryClassPool,
+            appView.libraryClassPool.classesAccept(
+                new ClassReferenceInitializer(appView.programClassPool,
+                                              appView.libraryClassPool,
                                               null,
                                               null,
                                               null,
@@ -313,21 +302,12 @@ public class Initializer
         ClassSubHierarchyInitializer classSubHierarchyInitializer =
             new ClassSubHierarchyInitializer();
 
-        programClassPool.accept(classSubHierarchyInitializer);
-        libraryClassPool.accept(classSubHierarchyInitializer);
+        appView.programClassPool.accept(classSubHierarchyInitializer);
+        appView.libraryClassPool.accept(classSubHierarchyInitializer);
 
         if (configuration.keepKotlinMetadata)
         {
-            resourceFilePool.resourceFilesAccept(new KotlinModuleReferenceInitializer(programClassPool, libraryClassPool));
-
-            if (configuration.enableKotlinAsserter)
-            {
-                new KotlinMetadataAsserter()
-                    .execute(programClassPool,
-                             libraryClassPool,
-                             resourceFilePool,
-                             kotlinInitializationWarningPrinter);
-            }
+            appView.resourceFilePool.resourceFilesAccept(new KotlinModuleReferenceInitializer(appView.programClassPool, appView.libraryClassPool));
         }
 
         // Initialize the companion classes
@@ -341,16 +321,16 @@ public class Initializer
         }
 
         // Share strings between the classes, to reduce heap memory usage.
-        programClassPool.classesAccept(new StringSharer());
-        libraryClassPool.classesAccept(new StringSharer());
+        appView.programClassPool.classesAccept(new StringSharer());
+        appView.libraryClassPool.classesAccept(new StringSharer());
 
         // Check for any unmatched class members.
-        WarningPrinter classMemberNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter classMemberNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (checkConfiguration)
         {
             ClassMemberChecker classMemberChecker =
-                new ClassMemberChecker(programClassPool,
+                new ClassMemberChecker(appView.programClassPool,
                                        classMemberNotePrinter);
 
             classMemberChecker.checkClassSpecifications(configuration.keep);
@@ -361,192 +341,189 @@ public class Initializer
         }
 
         // Check for unkept descriptor classes of kept class members.
-        WarningPrinter descriptorKeepNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter descriptorKeepNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (checkConfiguration)
         {
-            new DescriptorKeepChecker(programClassPool,
-                                      libraryClassPool,
+            new DescriptorKeepChecker(appView.programClassPool,
+                                      appView.libraryClassPool,
                                       descriptorKeepNotePrinter).checkClassSpecifications(configuration.keep);
         }
 
         // Check for keep options that only match library classes.
-        WarningPrinter libraryKeepNotePrinter = new WarningPrinter(out, configuration.note);
+        WarningPrinter libraryKeepNotePrinter = new WarningLogger(logger, configuration.note);
 
         if (checkConfiguration)
         {
-            new LibraryKeepChecker(programClassPool,
-                                   libraryClassPool,
+            new LibraryKeepChecker(appView.programClassPool,
+                                   appView.libraryClassPool,
                                    libraryKeepNotePrinter).checkClassSpecifications(configuration.keep);
         }
 
         // Initialize the references to Java classes in resource files.
-        resourceFilePool.resourceFilesAccept(
-            new ResourceJavaReferenceClassInitializer(programClassPool));
+        appView.resourceFilePool.resourceFilesAccept(
+            new ResourceJavaReferenceClassInitializer(appView.programClassPool));
 
         // Print out a summary of the notes, if necessary.
         int fullyQualifiedNoteCount = fullyQualifiedClassNameNotePrinter.getWarningCount();
         if (fullyQualifiedNoteCount > 0)
         {
-            out.println("Note: there were " + fullyQualifiedNoteCount +
-                        " references to unknown classes.");
-            out.println("      You should check your configuration for typos.");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#unknownclass)");
+            logger.info("Note: there were {} references to unknown classes.", fullyQualifiedNoteCount);
+            logger.info("      You should check your configuration for typos.");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#unknownclass)");
         }
 
         int classMemberNoteCount = classMemberNotePrinter.getWarningCount();
         if (classMemberNoteCount > 0)
         {
-            out.println("Note: there were " + classMemberNoteCount +
-                        " references to unknown class members.");
-            out.println("      You should check your configuration for typos.");
+            logger.info("Note: there were {} references to unknown class members.", classMemberNoteCount);
+            logger.info("      You should check your configuration for typos.");
         }
 
         int getAnnotationNoteCount = getAnnotationNotePrinter.getWarningCount();
         if (getAnnotationNoteCount > 0)
         {
-            out.println("Note: there were " + getAnnotationNoteCount +
-                        " classes trying to access annotations using reflection.");
-            out.println("      You should consider keeping the annotation attributes");
-            out.println("      (using '-keepattributes *Annotation*').");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
+            logger.info("Note: there were {} classes trying to access annotations using reflection.",
+                               getAnnotationNoteCount);
+            logger.info("      You should consider keeping the annotation attributes");
+            logger.info("      (using '-keepattributes *Annotation*').");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
         }
 
         int getSignatureNoteCount = getSignatureNotePrinter.getWarningCount();
         if (getSignatureNoteCount > 0)
         {
-            out.println("Note: there were " + getSignatureNoteCount +
-                        " classes trying to access generic signatures using reflection.");
-            out.println("      You should consider keeping the signature attributes");
-            out.println("      (using '-keepattributes Signature').");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
+            logger.info("Note: there were {} classes trying to access generic signatures using reflection.",
+                         getSignatureNoteCount);
+            logger.info("      You should consider keeping the signature attributes");
+            logger.info("      (using '-keepattributes Signature').");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
         }
 
         int getEnclosingClassNoteCount = getEnclosingClassNotePrinter.getWarningCount();
         if (getEnclosingClassNoteCount > 0)
         {
-            out.println("Note: there were " + getEnclosingClassNoteCount +
-                        " classes trying to access enclosing classes using reflection.");
-            out.println("      You should consider keeping the inner classes attributes");
-            out.println("      (using '-keepattributes InnerClasses').");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
+            logger.info("Note: there were {} classes trying to access enclosing classes using reflection.",
+                         getEnclosingClassNoteCount);
+            logger.info("      You should consider keeping the inner classes attributes");
+            logger.info("      (using '-keepattributes InnerClasses').");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
         }
 
         int getEnclosingMethodNoteCount = getEnclosingMethodNotePrinter.getWarningCount();
         if (getEnclosingMethodNoteCount > 0)
         {
-            out.println("Note: there were " + getEnclosingMethodNoteCount +
-                        " classes trying to access enclosing methods using reflection.");
-            out.println("      You should consider keeping the enclosing method attributes");
-            out.println("      (using '-keepattributes InnerClasses,EnclosingMethod').");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
+            logger.info("Note: there were {} classes trying to access enclosing methods using reflection.",
+                         getEnclosingMethodNoteCount);
+            logger.info("      You should consider keeping the enclosing method attributes");
+            logger.info("      (using '-keepattributes InnerClasses,EnclosingMethod').");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#attributes)");
         }
 
         int descriptorNoteCount = descriptorKeepNotePrinter.getWarningCount();
         if (descriptorNoteCount > 0)
         {
-            out.println("Note: there were " + descriptorNoteCount +
-                        " unkept descriptor classes in kept class members.");
-            out.println("      You should consider explicitly keeping the mentioned classes");
-            out.println("      (using '-keep').");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#descriptorclass)");
+            logger.info("Note: there were {} unkept descriptor classes in kept class members.",
+                        descriptorNoteCount);
+            logger.info("      You should consider explicitly keeping the mentioned classes");
+            logger.info("      (using '-keep').");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#descriptorclass)");
         }
 
         int libraryNoteCount = libraryKeepNotePrinter.getWarningCount();
         if (libraryNoteCount > 0)
         {
-            out.println("Note: there were " + libraryNoteCount +
-                               " library classes explicitly being kept.");
-            out.println("      You don't need to keep library classes; they are already left unchanged.");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#libraryclass)");
+            logger.info("Note: there were {} library classes explicitly being kept.", libraryNoteCount);
+            logger.info("      You don't need to keep library classes; they are already left unchanged.");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#libraryclass)");
         }
 
         int dynamicClassReferenceNoteCount = dynamicClassReferenceNotePrinter.getWarningCount();
         if (dynamicClassReferenceNoteCount > 0)
         {
-            out.println("Note: there were " + dynamicClassReferenceNoteCount +
-                        " unresolved dynamic references to classes or interfaces.");
-            out.println("      You should check if you need to specify additional program jars.");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#dynamicalclass)");
+            logger.info("Note: there were {} unresolved dynamic references to classes or interfaces.",
+                        dynamicClassReferenceNoteCount);
+            logger.info("      You should check if you need to specify additional program jars.");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#dynamicalclass)");
         }
 
         int classForNameNoteCount = classForNameNotePrinter.getWarningCount();
         if (classForNameNoteCount > 0)
         {
-            out.println("Note: there were " + classForNameNoteCount +
-                        " class casts of dynamically created class instances.");
-            out.println("      You might consider explicitly keeping the mentioned classes and/or");
-            out.println("      their implementations (using '-keep').");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#dynamicalclasscast)");
+            logger.info("Note: there were {} class casts of dynamically created class instances.",
+                        classForNameNoteCount);
+            logger.info("      You might consider explicitly keeping the mentioned classes and/or");
+            logger.info("      their implementations (using '-keep').");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#dynamicalclasscast)");
         }
 
         int getmemberNoteCount = getMemberNotePrinter.getWarningCount();
         if (getmemberNoteCount > 0)
         {
-            out.println("Note: there were " + getmemberNoteCount +
-                        " accesses to class members by means of reflection.");
-            out.println("      You should consider explicitly keeping the mentioned class members");
-            out.println("      (using '-keep' or '-keepclassmembers').");
-            out.println("      (https://www.guardsquare.com/proguard/manual/troubleshooting#dynamicalclassmember)");
+            logger.info("Note: there were {} accesses to class members by means of reflection.",
+                        getmemberNoteCount);
+            logger.info("      You should consider explicitly keeping the mentioned class members");
+            logger.info("      (using '-keep' or '-keepclassmembers').");
+            logger.info("      (https://www.guardsquare.com/proguard/manual/troubleshooting#dynamicalclassmember)");
         }
 
         // Print out a summary of the warnings, if necessary.
         int classReferenceWarningCount = classReferenceWarningPrinter.getWarningCount();
         if (classReferenceWarningCount > 0)
         {
-            err.println("Warning: there were " + classReferenceWarningCount +
-                        " unresolved references to classes or interfaces.");
-            err.println("         You may need to add missing library jars or update their versions.");
-            err.println("         If your code works fine without the missing classes, you can suppress");
-            err.println("         the warnings with '-dontwarn' options.");
+            logger.warn("Warning: there were {} unresolved references to classes or interfaces.",
+                         classReferenceWarningCount);
+            logger.warn("         You may need to add missing library jars or update their versions.");
+            logger.warn("         If your code works fine without the missing classes, you can suppress");
+            logger.warn("         the warnings with '-dontwarn' options.");
 
             if (configuration.skipNonPublicLibraryClasses)
             {
-                err.println("         You may also have to remove the option '-skipnonpubliclibraryclasses'.");
+                logger.warn("         You may also have to remove the option '-skipnonpubliclibraryclasses'.");
             }
 
-            err.println("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unresolvedclass)");
+            logger.warn("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unresolvedclass)");
         }
 
         int dependencyWarningCount = dependencyWarningPrinter.getWarningCount();
         if (dependencyWarningCount > 0)
         {
-            err.println("Warning: there were " + dependencyWarningCount +
-                        " instances of library classes depending on program classes.");
-            err.println("         You must avoid such dependencies, since the program classes will");
-            err.println("         be processed, while the library classes will remain unchanged.");
-            err.println("         (https://www.guardsquare.com/proguard/manual/troubleshooting#dependency)");
+            logger.warn("Warning: there were {} instances of library classes depending on program classes.",
+                         dependencyWarningCount);
+            logger.warn("         You must avoid such dependencies, since the program classes will");
+            logger.warn("         be processed, while the library classes will remain unchanged.");
+            logger.warn("         (https://www.guardsquare.com/proguard/manual/troubleshooting#dependency)");
         }
 
         int programMemberReferenceWarningCount = programMemberReferenceWarningPrinter.getWarningCount();
         if (programMemberReferenceWarningCount > 0)
         {
-            err.println("Warning: there were " + programMemberReferenceWarningCount +
-                        " unresolved references to program class members.");
-            err.println("         Your input classes appear to be inconsistent.");
-            err.println("         You may need to recompile the code.");
-            err.println("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unresolvedprogramclassmember)");
+            logger.warn("Warning: there were {} unresolved references to program class members.",
+                         programMemberReferenceWarningCount);
+            logger.warn("         Your input classes appear to be inconsistent.");
+            logger.warn("         You may need to recompile the code.");
+            logger.warn("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unresolvedprogramclassmember)");
         }
 
         int libraryMemberReferenceWarningCount = libraryMemberReferenceWarningPrinter.getWarningCount();
         if (libraryMemberReferenceWarningCount > 0)
         {
-            err.println("Warning: there were " + libraryMemberReferenceWarningCount +
-                        " unresolved references to library class members.");
-            err.println("         You probably need to update the library versions.");
+            logger.warn("Warning: there were {} unresolved references to library class members.",
+                         libraryMemberReferenceWarningCount);
+            logger.warn("         You probably need to update the library versions.");
 
             if (!configuration.skipNonPublicLibraryClassMembers)
             {
-                err.println("         Alternatively, you may have to specify the option ");
-                err.println("         '-dontskipnonpubliclibraryclassmembers'.");
+                logger.warn("         Alternatively, you may have to specify the option ");
+                logger.warn("         '-dontskipnonpubliclibraryclassmembers'.");
             }
 
             if (configuration.skipNonPublicLibraryClasses)
             {
-                err.println("         You may also have to remove the option '-skipnonpubliclibraryclasses'.");
+                logger.warn("         You may also have to remove the option '-skipnonpubliclibraryclasses'.");
             }
 
-            err.println("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unresolvedlibraryclassmember)");
+            logger.warn("         (https://www.guardsquare.com/proguard/manual/troubleshooting#unresolvedlibraryclassmember)");
         }
 
         if (configuration.keepKotlinMetadata)
@@ -555,8 +532,8 @@ public class Initializer
 
             if (kotlinInitializationWarningCount > 0)
             {
-                err.println("Warning: there were " + kotlinInitializationWarningCount +
-                            " errors during Kotlin metadata initialisation.");
+                logger.warn("Warning: there were {} errors during Kotlin metadata initialisation.",
+                             kotlinInitializationWarningCount);
             }
         }
 
@@ -564,8 +541,8 @@ public class Initializer
 
         if (incompatibleOptimization)
         {
-            err.println("Warning: optimization is enabled while shrinking is disabled.");
-            err.println("         You need to remove the option -dontshrink or optimization might result in classes that fail verification at runtime.");
+            logger.warn("Warning: optimization is enabled while shrinking is disabled.");
+            logger.warn("         You need to remove the option -dontshrink or optimization might result in classes that fail verification at runtime.");
         }
 
         if ((classReferenceWarningCount         > 0 ||
@@ -583,16 +560,12 @@ public class Initializer
              configuration.warn.isEmpty() ||
              configuration.ignoreWarnings))
         {
-            out.println("Note: you're ignoring all warnings!");
+            logger.info("Note: you're ignoring all warnings!");
         }
 
-        // Discard unused library classes.
-        if (configuration.verbose)
-        {
-            out.println("Ignoring unused library classes...");
-            out.println("  Original number of library classes: " + originalLibraryClassPoolSize);
-            out.println("  Final number of library classes:    " + libraryClassPool.size());
-        }
+        logger.info("Ignoring unused library classes...");
+        logger.info("  Original number of library classes: {}", originalLibraryClassPoolSize);
+        logger.info("  Final number of library classes:    {}", appView.libraryClassPool.size());
     }
 
 

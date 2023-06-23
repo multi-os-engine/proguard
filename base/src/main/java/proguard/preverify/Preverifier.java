@@ -20,25 +20,27 @@
  */
 package proguard.preverify;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import proguard.AppView;
 import proguard.Configuration;
 import proguard.classfile.*;
 import proguard.classfile.attribute.visitor.AllAttributeVisitor;
 import proguard.classfile.visitor.*;
+import proguard.pass.Pass;
 
 /**
- * This class can preverify methods in program class pools, according to a given
+ * This pass can preverify methods in program class pools, according to a given
  * configuration.
  *
  * @author Eric Lafortune
  */
-public class Preverifier
+public class Preverifier implements Pass
 {
+    private static final Logger logger = LogManager.getLogger(Preverifier.class);
+
     private final Configuration configuration;
 
-
-    /**
-     * Creates a new Preverifier.
-     */
     public Preverifier(Configuration configuration)
     {
         this.configuration = configuration;
@@ -48,19 +50,22 @@ public class Preverifier
     /**
      * Performs preverification of the given program class pool.
      */
-    public void execute(ClassPool programClassPool)
+    @Override
+    public void execute(AppView appView)
     {
+        logger.info("Preverifying...");
+
         // Clean up any old processing info.
-        programClassPool.classesAccept(new ClassCleaner());
+        appView.programClassPool.classesAccept(new ClassCleaner());
 
         // Preverify all methods.
         // Classes for JME must be preverified.
         // Classes for JSE 6 may optionally be preverified.
         // Classes for JSE 7 or higher must be preverified.
-        programClassPool.classesAccept(
+        appView.programClassPool.classesAccept(
             new ClassVersionFilter(configuration.microEdition ?
-                                       VersionConstants.CLASS_VERSION_1_0 :
-                                       VersionConstants.CLASS_VERSION_1_6,
+                                   VersionConstants.CLASS_VERSION_1_0 :
+                                   VersionConstants.CLASS_VERSION_1_6,
             new AllMethodVisitor(
             new AllAttributeVisitor(
             new CodePreverifier(configuration.microEdition)))));

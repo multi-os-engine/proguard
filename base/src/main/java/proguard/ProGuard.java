@@ -20,29 +20,32 @@
  */
 package proguard;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.backport.Backporter;
-import proguard.classfile.*;
-import proguard.classfile.attribute.Attribute;
-import proguard.classfile.attribute.visitor.AllAttributeVisitor;
 import proguard.classfile.editor.*;
-import proguard.classfile.io.kotlin.KotlinMetadataWriter;
-import proguard.classfile.kotlin.visitor.ReferencedKotlinMetadataVisitor;
+import proguard.classfile.pass.PrimitiveArrayConstantIntroducer;
 import proguard.classfile.util.*;
-import proguard.classfile.visitor.*;
 import proguard.configuration.ConfigurationLoggingAdder;
 import proguard.evaluation.IncompleteClassHierarchyException;
 import proguard.configuration.InitialStateInfo;
 import proguard.io.ExtraDataEntryNameMap;
+import proguard.logging.Logging;
 import proguard.mark.Marker;
+import proguard.obfuscate.NameObfuscationReferenceFixer;
+import proguard.obfuscate.ObfuscationPreparation;
 import proguard.obfuscate.Obfuscator;
+import proguard.obfuscate.ResourceFileNameAdapter;
+import proguard.optimize.LineNumberTrimmer;
 import proguard.optimize.Optimizer;
 import proguard.optimize.gson.GsonOptimizer;
 import proguard.optimize.peephole.LineNumberLinearizer;
+import proguard.pass.PassRunner;
 import proguard.preverify.*;
-import proguard.resources.file.ResourceFilePool;
 import proguard.shrink.Shrinker;
 import proguard.strip.KotlinAnnotationStripper;
 import proguard.util.*;
+import proguard.util.kotlin.asserter.KotlinMetadataAsserter;
 
 import java.io.*;
 
@@ -53,22 +56,16 @@ import java.io.*;
  */
 public class ProGuard
 {
+    private static final Logger logger = LogManager.getLogger(ProGuard.class);
     public static final String VERSION = "ProGuard, version " + getVersion();
 
-
-    private final Configuration    configuration;
-
-    private       ClassPool        programClassPool = new ClassPool();
-    private final ClassPool        libraryClassPool = new ClassPool();
-    private final ResourceFilePool resourceFilePool = new ResourceFilePool();
-
-    // Stores information about the original state of the program class pool
-    // used for configuration debugging.
-    private InitialStateInfo initialStateInfo;
-
-    // All injected data entries.
-    private final ExtraDataEntryNameMap extraDataEntryNameMap = new ExtraDataEntryNameMap();
-
+    /**
+     * A data object containing pass inputs in a centralized location. Passes can access and update the information
+     * at any point in the pipeline.
+     */
+    private final AppView       appView;
+    private final PassRunner    passRunner;
+    private final Configuration configuration;
 
     /**
      * Creates a new ProGuard object to process jars as specified by the given
@@ -76,33 +73,34 @@ public class ProGuard
      */
     public ProGuard(Configuration configuration)
     {
+        this.appView       = new AppView();
+        this.passRunner    = new PassRunner();
         this.configuration = configuration;
     }
-
 
     /**
      * Performs all subsequent ProGuard operations.
      */
-    public void execute() throws IOException
+    public void execute() throws Exception
     {
-        System.out.println(VERSION);
+        Logging.configureVerbosity(configuration.verbose);
 
-        GPL.check();
+        logger.always().log(VERSION);
 
         try
         {
+            checkGpl();
+
             if (configuration.printConfiguration != null)
             {
                 printConfiguration();
             }
 
-            new ConfigurationChecker(configuration).check();
+            checkConfiguration();
 
-            if (configuration.programJars != null     &&
-                configuration.programJars.hasOutput() &&
-                new UpToDateChecker(configuration).check())
+            if (configuration.programJars.hasOutput())
             {
-                return;
+                checkUpToDate();
             }
 
             if (configuration.targetClassVersion != 0)
@@ -137,7 +135,7 @@ public class ProGuard
             {
                 // Remember the initial state of the program classpool and resource filepool
                 // before shrinking / obfuscation / optimization.
-                initialStateInfo = new InitialStateInfo(programClassPool);
+                appView.initialStateInfo = new InitialStateInfo(appView.programClassPool);
             }
 
             if (configuration.keepKotlinMetadata)
@@ -174,37 +172,23 @@ public class ProGuard
 
             if (configuration.shrink)
             {
-                shrink();
+                shrink(false);
             }
 
-            if (configuration.optimize)
+            // Create a matcher for filtering optimizations.
+            StringMatcher filter = configuration.optimizations != null ?
+                new ListParser(new NameParser()).parse(configuration.optimizations) :
+                new ConstantMatcher(true);
+
+            if (configuration.optimize &&
+                filter.matches(Optimizer.LIBRARY_GSON))
             {
                 optimizeGson();
             }
 
             if (configuration.optimize)
             {
-                for (int optimizationPass = 0;
-                     optimizationPass < configuration.optimizationPasses;
-                     optimizationPass++)
-                {
-                    if (!optimize(optimizationPass+1, configuration.optimizationPasses))
-                    {
-                        // Stop optimizing if the code doesn't improve any further.
-                        break;
-                    }
-
-                    // Shrink again, if we may.
-                    if (configuration.shrink)
-                    {
-                        // Don't print any usage this time around.
-                        configuration.printUsage       = null;
-                        configuration.whyAreYouKeeping = null;
-
-                        shrink();
-                    }
-                }
-
+                optimize();
                 linearizeLineNumbers();
             }
 
@@ -215,7 +199,7 @@ public class ProGuard
 
             if (configuration.keepKotlinMetadata)
             {
-                keepKotlinMetadata();
+                adaptKotlinMetadata();
             }
 
             if (configuration.optimize ||
@@ -260,6 +244,7 @@ public class ProGuard
                 dump();
             }
         }
+        catch (UpToDateChecker.UpToDateException ignore) {}
         catch (IncompleteClassHierarchyException e)
         {
             throw new RuntimeException(
@@ -273,43 +258,62 @@ public class ProGuard
 
 
     /**
+     * Checks the GPL.
+     */
+    private void checkGpl()
+    {
+        GPL.check();
+    }
+
+
+    /**
      * Prints out the configuration that ProGuard is using.
      */
     private void printConfiguration() throws IOException
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Printing configuration to [" +
-                               PrintWriterUtil.fileName(configuration.printConfiguration) +
-                               "]...");
-        }
-
         PrintWriter pw = PrintWriterUtil.createPrintWriterOut(configuration.printConfiguration);
-        try
+
+        try (ConfigurationWriter configurationWriter = new ConfigurationWriter(pw))
         {
-            new ConfigurationWriter(pw).write(configuration);
+            configurationWriter.write(configuration);
         }
-        finally
-        {
-            PrintWriterUtil.closePrintWriter(configuration.printConfiguration, pw);
-        }
+    }
+
+
+    /**
+     * Checks the configuration for conflicts and inconsistencies.
+     */
+    private void checkConfiguration() throws IOException
+    {
+        new ConfigurationChecker(configuration).check();
+    }
+
+
+    /**
+     * Checks whether the output is up-to-date.
+     */
+    private void checkUpToDate()
+    {
+        new UpToDateChecker(configuration).check();
     }
 
 
     /**
      * Reads the input class files.
      */
-    private void readInput() throws IOException
+    private void readInput() throws Exception
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Reading input...");
-        }
-
         // Fill the program class pool and the library class pool.
-        new InputReader(configuration).execute(programClassPool,
-                                               libraryClassPool,
-                                               resourceFilePool);
+        passRunner.run(new InputReader(configuration), appView);
+    }
+
+
+    /**
+     * Clears any JSE preverification information from the program classes.
+     */
+    private void clearPreverification() throws Exception
+    {
+        passRunner.run(new PreverificationClearer(), appView);
     }
 
 
@@ -317,16 +321,15 @@ public class ProGuard
      * Initializes the cross-references between all classes, performs some
      * basic checks, and shrinks the library class pool.
      */
-    private void initialize() throws IOException
+    private void initialize() throws Exception
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Initializing...");
-        }
+        passRunner.run(new Initializer(configuration), appView);
 
-        new Initializer(configuration).execute(programClassPool,
-                                               libraryClassPool,
-                                               resourceFilePool);
+        if (configuration.keepKotlinMetadata &&
+            configuration.enableKotlinAsserter)
+        {
+            passRunner.run(new KotlinMetadataAsserter(configuration), appView);
+        }
     }
 
 
@@ -334,35 +337,159 @@ public class ProGuard
      * Marks the classes, class members and attributes to be kept or encrypted,
      * by setting the appropriate access flags.
      */
-    private void mark()
+    private void mark() throws Exception
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Marking classes and class members to be kept...");
-        }
-
-        new Marker(configuration).mark(programClassPool,
-                                       libraryClassPool);
+        passRunner.run(new Marker(configuration), appView);
     }
 
 
     /**
      * Strips the Kotlin metadata annotation where possible.
      */
-    private void stripKotlinMetadataAnnotations()
+    private void stripKotlinMetadataAnnotations() throws Exception
     {
-        new KotlinAnnotationStripper().execute(configuration,
-                                               programClassPool,
-                                               libraryClassPool);
+        passRunner.run(new KotlinAnnotationStripper(configuration), appView);
     }
 
 
     /**
      * Replaces primitive array initialization code by primitive array constants.
      */
-    private void introducePrimitiveArrayConstants()
+    private void introducePrimitiveArrayConstants() throws Exception
     {
-        programClassPool.classesAccept(new ArrayInitializationReplacer());
+        passRunner.run(new PrimitiveArrayConstantIntroducer(), appView);
+    }
+
+
+    /**
+     * Backports java language features to the specified target version.
+     */
+    private void backport() throws Exception
+    {
+        passRunner.run(new Backporter(configuration), appView);
+    }
+
+
+    /**
+     * Adds configuration logging code, providing suggestions on improving
+     * the ProGuard configuration.
+     */
+    private void addConfigurationLogging() throws Exception
+    {
+        passRunner.run(new ConfigurationLoggingAdder(), appView);
+    }
+
+
+    /**
+     * Prints out classes and class members that are used as seeds in the
+     * shrinking and obfuscation steps.
+     */
+    private void printSeeds() throws Exception
+    {
+        passRunner.run(new SeedPrinter(configuration), appView);
+    }
+
+
+    /**
+     * Performs the subroutine inlining step.
+     */
+    private void inlineSubroutines() throws Exception
+    {
+        // Perform the actual inlining.
+        passRunner.run(new SubroutineInliner(configuration), appView);
+    }
+
+
+    /**
+     * Performs the shrinking step.
+     */
+    private void shrink(boolean afterOptimizer) throws Exception
+    {
+        // Perform the actual shrinking.
+        passRunner.run(new Shrinker(configuration, afterOptimizer), appView);
+
+        if (configuration.keepKotlinMetadata &&
+            configuration.enableKotlinAsserter)
+        {
+            passRunner.run(new KotlinMetadataAsserter(configuration), appView);
+        }
+    }
+
+
+    /**
+     * Optimizes usages of the Gson library.
+     */
+    private void optimizeGson() throws Exception
+    {
+        // Perform the Gson optimization.
+        passRunner.run(new GsonOptimizer(configuration), appView);
+    }
+
+
+    /**
+     * Performs the optimization step.
+     */
+    private void optimize() throws Exception
+    {
+        Optimizer optimizer = new Optimizer(configuration);
+
+        for (int optimizationPass = 0; optimizationPass < configuration.optimizationPasses; optimizationPass++)
+        {
+            // Perform the actual optimization.
+            passRunner.run(optimizer, appView);
+
+            // Shrink again, if we may.
+            if (configuration.shrink)
+            {
+                shrink(true);
+            }
+        }
+    }
+
+
+    /**
+     * Disambiguates the line numbers of all program classes, after
+     * optimizations like method inlining and class merging.
+     */
+    private void linearizeLineNumbers() throws Exception
+    {
+        passRunner.run(new LineNumberLinearizer(), appView);
+    }
+
+
+    /**
+     * Performs the obfuscation step.
+     */
+    private void obfuscate() throws Exception
+    {
+        passRunner.run(new ObfuscationPreparation(configuration), appView);
+
+        // Perform the actual obfuscation.
+        passRunner.run(new Obfuscator(configuration), appView);
+
+        // Adapt resource file names that correspond to class names, if necessary.
+        if (configuration.adaptResourceFileNames != null)
+        {
+            passRunner.run(new ResourceFileNameAdapter(configuration), appView);
+        }
+
+        // Fix the Kotlin modules so the filename matches and the class names match.
+        passRunner.run(new NameObfuscationReferenceFixer(configuration), appView);
+
+        if (configuration.keepKotlinMetadata &&
+            configuration.enableKotlinAsserter)
+        {
+            passRunner.run(new KotlinMetadataAsserter(configuration), appView);
+        }
+    }
+
+
+    /**
+     * Adapts Kotlin Metadata annotations.
+     */
+    private void adaptKotlinMetadata() throws Exception
+    {
+        passRunner.run(new KotlinMetadataAdapter(configuration), appView);
     }
 
 
@@ -372,247 +499,35 @@ public class ProGuard
      */
     private void expandPrimitiveArrayConstants()
     {
-        programClassPool.classesAccept(new PrimitiveArrayConstantReplacer());
-    }
-
-
-    /**
-     * Backports java language features to the specified target version.
-     */
-    private void backport()
-    {
-        new Backporter(configuration).execute(programClassPool,
-                                              libraryClassPool,
-                                              extraDataEntryNameMap);
-    }
-
-
-    /**
-     * Adds configuration logging code, providing suggestions on improving
-     * the ProGuard configuration.
-     */
-    private void addConfigurationLogging() throws IOException
-    {
-        new ConfigurationLoggingAdder().execute(programClassPool,
-                                                libraryClassPool,
-                                                extraDataEntryNameMap);
-    }
-
-
-    /**
-     * Adapts Kotlin Metadata annotations.
-     */
-    private void keepKotlinMetadata()
-    {
-        if (configuration.verbose)
-        {
-            System.out.println("Adapting Kotlin metadata...");
-        }
-
-        WarningPrinter warningPrinter = new WarningPrinter(new PrintWriter(System.out, true));
-
-        ClassCounter counter = new ClassCounter();
-        programClassPool.classesAccept(
-            new ReferencedKotlinMetadataVisitor(
-            new KotlinMetadataWriter(warningPrinter, counter)));
-
-        if (configuration.verbose)
-        {
-            System.out.println("  Number of Kotlin classes adapted:              " + counter.getCount());
-        }
+        appView.programClassPool.classesAccept(new PrimitiveArrayConstantReplacer());
     }
 
 
     /**
      * Sets that target versions of the program classes.
      */
-    private void target() throws IOException
+    private void target() throws Exception
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Setting target versions...");
-        }
-
-        new Targeter(configuration).execute(programClassPool);
-    }
-
-
-    /**
-     * Prints out classes and class members that are used as seeds in the
-     * shrinking and obfuscation steps.
-     */
-    private void printSeeds() throws IOException
-    {
-        if (configuration.verbose)
-        {
-            System.out.println("Printing kept classes, fields, and methods...");
-        }
-
-        PrintWriter pw = PrintWriterUtil.createPrintWriterOut(configuration.printSeeds);
-        try
-        {
-            new SeedPrinter(pw).write(configuration,
-                                      programClassPool,
-                                      libraryClassPool);
-        }
-        finally
-        {
-            PrintWriterUtil.closePrintWriter(configuration.printSeeds, pw);
-        }
-    }
-
-
-    /**
-     * Performs the shrinking step.
-     */
-    private void shrink() throws IOException
-    {
-        if (configuration.verbose)
-        {
-            System.out.println("Shrinking...");
-
-            // We'll print out some explanation, if requested.
-            if (configuration.whyAreYouKeeping != null)
-            {
-                System.out.println("Explaining why classes and class members are being kept...");
-            }
-
-            // We'll print out the usage, if requested.
-            if (configuration.printUsage != null)
-            {
-                System.out.println("Printing usage to [" + PrintWriterUtil.fileName(configuration.printUsage) + "]...");
-            }
-        }
-
-        // Perform the actual shrinking.
-        programClassPool =
-            new Shrinker(configuration).execute(programClassPool,
-                                                libraryClassPool,
-                                                resourceFilePool);
-    }
-
-
-    /**
-     * Performs the subroutine inlining step.
-     */
-    private void inlineSubroutines()
-    {
-        if (configuration.verbose)
-        {
-            System.out.println("Inlining subroutines...");
-        }
-
-        // Perform the actual inlining.
-        new SubroutineInliner(configuration).execute(programClassPool);
-    }
-
-
-    /**
-     * Optimizes usages of the Gson library.
-     */
-    private void optimizeGson() throws IOException
-    {
-        // Do we have Gson code?
-        // Is Gson optimization enabled?
-        if (programClassPool.getClass("com/google/gson/Gson") != null &&
-            (configuration.optimizations == null ||
-             new ListParser(new NameParser()).parse(configuration.optimizations)
-                 .matches(Optimizer.LIBRARY_GSON)))
-        {
-            if (configuration.verbose)
-            {
-                System.out.println("Optimizing usages of Gson library...");
-            }
-
-            // Perform the Gson optimization.
-            new GsonOptimizer().execute(programClassPool,
-                                        libraryClassPool,
-                                        extraDataEntryNameMap,
-                                        configuration);
-        }
-    }
-
-
-    /**
-     * Performs the optimization step.
-     */
-    private boolean optimize(int currentPass,
-                             int maxPasses) throws IOException
-    {
-        if (configuration.verbose)
-        {
-            System.out.println("Optimizing (pass " + currentPass + "/" + maxPasses + ")...");
-        }
-
-        // Perform the actual optimization.
-        return new Optimizer(configuration).execute(programClassPool,
-                                                    libraryClassPool,
-                                                    extraDataEntryNameMap);
-    }
-
-
-    /**
-     * Performs the obfuscation step.
-     */
-    private void obfuscate() throws IOException
-    {
-        if (configuration.verbose)
-        {
-            System.out.println("Obfuscating...");
-        }
-
-        // Perform the actual obfuscation.
-        new Obfuscator(configuration).execute(programClassPool,
-                                              libraryClassPool,
-                                              resourceFilePool);
-    }
-
-
-    /**
-     * Disambiguates the line numbers of all program classes, after
-     * optimizations like method inlining and class merging.
-     */
-    private void linearizeLineNumbers()
-    {
-        programClassPool.classesAccept(new LineNumberLinearizer());
-    }
-
-
-    /**
-     * Trims the line number table attributes of all program classes.
-     */
-    private void trimLineNumbers()
-    {
-        programClassPool.classesAccept(new AllAttributeVisitor(true,
-                                       new LineNumberTableAttributeTrimmer()));
-    }
-
-
-    /**
-     * Clears any JSE preverification information from the program classes.
-     */
-    private void clearPreverification()
-    {
-        programClassPool.classesAccept(
-            new ClassVersionFilter(VersionConstants.CLASS_VERSION_1_6,
-            new AllMethodVisitor(
-            new AllAttributeVisitor(
-            new NamedAttributeDeleter(Attribute.STACK_MAP_TABLE)))));
+        passRunner.run(new Targeter(configuration), appView);
     }
 
 
     /**
      * Performs the preverification step.
      */
-    private void preverify()
+    private void preverify() throws Exception
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Preverifying...");
-        }
-
         // Perform the actual preverification.
-        new Preverifier(configuration).execute(programClassPool);
+        passRunner.run(new Preverifier(configuration), appView);
+    }
+
+
+    /**
+     * Trims the line number table attributes of all program classes.
+     */
+    private void trimLineNumbers() throws Exception
+    {
+        passRunner.run(new LineNumberTrimmer(), appView);
     }
 
 
@@ -621,47 +536,26 @@ public class ProGuard
      */
     private void sortClassElements()
     {
-        programClassPool.classesAccept(new ClassElementSorter());
+        appView.programClassPool.classesAccept(new ClassElementSorter());
     }
 
 
     /**
      * Writes the output class files.
      */
-    private void writeOutput() throws IOException
+    private void writeOutput() throws Exception
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Writing output...");
-        }
-
         // Write out the program class pool.
-        new OutputWriter(configuration).execute(programClassPool,
-                                                initialStateInfo,
-                                                resourceFilePool,
-                                                extraDataEntryNameMap);
+        passRunner.run(new OutputWriter(configuration), appView);
     }
 
 
     /**
      * Prints out the contents of the program classes.
      */
-    private void dump() throws IOException
+    private void dump() throws Exception
     {
-        if (configuration.verbose)
-        {
-            System.out.println("Printing classes to [" + PrintWriterUtil.fileName(configuration.dump) + "]...");
-        }
-
-        PrintWriter pw = PrintWriterUtil.createPrintWriterOut(configuration.dump);
-        try
-        {
-            programClassPool.classesAccept(new ClassPrinter(pw));
-        }
-        finally
-        {
-            PrintWriterUtil.closePrintWriter(configuration.dump, pw);
-        }
+        passRunner.run(new Dumper(configuration), appView);
     }
 
 
@@ -691,8 +585,8 @@ public class ProGuard
     {
         if (args.length == 0)
         {
-            System.out.println(VERSION);
-            System.out.println("Usage: java proguard.ProGuard [options ...]");
+            logger.warn(VERSION);
+            logger.warn("Usage: java proguard.ProGuard [options ...]");
             System.exit(1);
         }
 
@@ -702,15 +596,9 @@ public class ProGuard
         try
         {
             // Parse the options specified in the command line arguments.
-            ConfigurationParser parser = new ConfigurationParser(args,
-                                                                 System.getProperties());
-            try
+            try (ConfigurationParser parser = new ConfigurationParser(args, System.getProperties()))
             {
                 parser.parse(configuration);
-            }
-            finally
-            {
-                parser.close();
             }
 
             // Execute ProGuard with these options.
@@ -718,16 +606,7 @@ public class ProGuard
         }
         catch (Exception ex)
         {
-            if (configuration.verbose)
-            {
-                // Print a verbose stack trace.
-                ex.printStackTrace();
-            }
-            else
-            {
-                // Print just the stack trace message.
-                System.err.println("Error: "+ex.getMessage());
-            }
+            logger.error("Unexpected error", ex);
 
             System.exit(1);
         }

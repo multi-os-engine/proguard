@@ -20,6 +20,9 @@
  */
 package proguard;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.File;
 import java.net.*;
 
@@ -30,6 +33,7 @@ import java.net.*;
  */
 public class UpToDateChecker
 {
+    private static final Logger logger = LogManager.getLogger(UpToDateChecker.class);
     private final Configuration configuration;
 
 
@@ -46,7 +50,7 @@ public class UpToDateChecker
      * Returns whether the output is up to date, based on the modification times
      * of the input jars, output jars, and library jars (or directories).
      */
-    public boolean check()
+    public void check() throws UpToDateException
     {
         try
         {
@@ -99,12 +103,12 @@ public class UpToDateChecker
         catch (IllegalStateException e)
         {
             // The output is outdated.
-            return false;
+            return;
         }
 
-        System.out.println("The output seems up to date");
+        logger.always().log("The output seems up to date");
 
-        return true;
+        throw new UpToDateException();
     }
 
 
@@ -248,4 +252,9 @@ public class UpToDateChecker
             }
         }
     }
+
+    /**
+     * This Exception is thrown when the output is up-to-date.
+     */
+    public static class UpToDateException extends RuntimeException {}
 }

@@ -20,6 +20,8 @@
  */
 package proguard.backport;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.*;
 import proguard.classfile.*;
 import proguard.classfile.attribute.Attribute;
@@ -30,20 +32,19 @@ import proguard.classfile.instruction.Instruction;
 import proguard.classfile.instruction.visitor.InstructionCounter;
 import proguard.classfile.util.*;
 import proguard.classfile.visitor.*;
-import proguard.io.ExtraDataEntryNameMap;
-import proguard.util.MultiValueMap;
+import proguard.pass.Pass;
 
-import java.io.PrintWriter;
+import java.io.IOException;
 
 /**
- * This class backports classes to the specified targetClassVersion.
+ * This pass backports classes to the specified targetClassVersion.
  *
  * @author Thomas Neidhart
  */
-public class Backporter
+public class Backporter implements Pass
 {
+    private static final Logger logger = LogManager.getLogger(Backporter.class);
     private final Configuration configuration;
-
 
     public Backporter(Configuration configuration)
     {
@@ -51,22 +52,16 @@ public class Backporter
     }
 
 
-    public void execute(ClassPool             programClassPool,
-                        ClassPool             libraryClassPool,
-                        ExtraDataEntryNameMap extraDataEntryNameMap)
+    @Override
+    public void execute(AppView appView) throws IOException
     {
         int targetClassVersion = configuration.targetClassVersion;
 
-        if (configuration.verbose)
-        {
-            System.out.println("Backporting class files...");
-        }
-
-        PrintWriter err = new PrintWriter(System.err, true);
+        logger.info("Backporting class files...");
 
         // Clean up any previous processing info.
-        programClassPool.classesAccept(new ClassCleaner());
-        libraryClassPool.classesAccept(new ClassCleaner());
+        appView.programClassPool.classesAccept(new ClassCleaner());
+        appView.libraryClassPool.classesAccept(new ClassCleaner());
 
         final InstructionCounter replacedStringConcatCounter      = new InstructionCounter();
         final ClassCounter       lambdaExpressionCounter          = new ClassCounter();
@@ -80,7 +75,7 @@ public class Backporter
         {
             // Convert indy string concatenations to StringBuilder chains
             CodeAttributeEditor codeAttributeEditor = new CodeAttributeEditor(true, true);
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new ClassVersionFilter(VersionConstants.CLASS_VERSION_1_9,
                 new AllAttributeVisitor(
                 new AttributeNameFilter(Attribute.BOOTSTRAP_METHODS,
@@ -98,7 +93,7 @@ public class Backporter
                     new BootstrapMethodsAttributeShrinker(),
 
                     // Initialize new references to StringBuilder.
-                    new ClassReferenceInitializer(programClassPool, libraryClassPool)
+                    new ClassReferenceInitializer(appView.programClassPool, appView.libraryClassPool)
                 ))))));
         }
 
@@ -107,7 +102,7 @@ public class Backporter
             // Collect all classes with BootstrapMethod attributes,
             // and convert lambda expressions and method references.
             ClassPool filteredClasses = new ClassPool();
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new ClassVersionFilter(VersionConstants.CLASS_VERSION_1_8,
                 new AllAttributeVisitor(
                 new AttributeNameFilter(Attribute.BOOTSTRAP_METHODS,
@@ -119,16 +114,16 @@ public class Backporter
             filteredClasses.classesAccept(
                 new MultiClassVisitor(
                     // Replace the indy instructions related to lambda expressions.
-                    new LambdaExpressionConverter(programClassPool,
-                                                  libraryClassPool,
-                                                  extraDataEntryNameMap,
+                    new LambdaExpressionConverter(appView.programClassPool,
+                                                  appView.libraryClassPool,
+                                                  appView.extraDataEntryNameMap,
                                                   lambdaExpressionCounter),
 
                     // Clean up unused bootstrap methods and their dangling constants.
                     new BootstrapMethodsAttributeShrinker(),
 
                     // Re-initialize references.
-                    new ClassReferenceInitializer(programClassPool, libraryClassPool)
+                    new ClassReferenceInitializer(appView.programClassPool, appView.libraryClassPool)
                 ));
 
             // Remove static and default methods from interfaces if the
@@ -137,7 +132,7 @@ public class Backporter
             // does not explicitly mention static interface methods, although
             // they seem to work correctly.
             ClassPool interfaceClasses = new ClassPool();
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new ClassVersionFilter(VersionConstants.CLASS_VERSION_1_8,
                 new ClassAccessFilter(AccessConstants.INTERFACE, 0,
                 new ClassPoolFiller(interfaceClasses))));
@@ -148,9 +143,9 @@ public class Backporter
 
             interfaceClasses.classesAccept(
                 new MultiClassVisitor(
-                    new StaticInterfaceMethodConverter(programClassPool,
-                                                       libraryClassPool,
-                                                       extraDataEntryNameMap,
+                    new StaticInterfaceMethodConverter(appView.programClassPool,
+                                                       appView.libraryClassPool,
+                                                       appView.extraDataEntryNameMap,
                                                        modifiedClassCollector,
                                                        staticInterfaceMethodCounter),
 
@@ -160,16 +155,16 @@ public class Backporter
 
             // Re-Initialize references in modified classes.
             modifiedClasses.classesAccept(
-                new ClassReferenceInitializer(programClassPool,
-                                              libraryClassPool));
+                new ClassReferenceInitializer(appView.programClassPool,
+                                              appView.libraryClassPool));
         }
 
         if (targetClassVersion < VersionConstants.CLASS_VERSION_1_7)
         {
             // Replace / remove method calls only available in Java 7+.
             InstructionSequenceBuilder ____ =
-                new InstructionSequenceBuilder(programClassPool,
-                                               libraryClassPool);
+                new InstructionSequenceBuilder(appView.programClassPool,
+                                               appView.libraryClassPool);
 
             Instruction[][][] instructions = new Instruction[][][]
             {
@@ -206,7 +201,7 @@ public class Backporter
 
             CodeAttributeEditor codeAttributeEditor = new CodeAttributeEditor();
 
-            programClassPool.classesAccept(
+            appView.programClassPool.classesAccept(
                 new AllMethodVisitor(
                 new AllAttributeVisitor(
                 new PeepholeEditor(null, codeAttributeEditor,
@@ -227,39 +222,39 @@ public class Backporter
                 new ClassNameFilter("java8/**",
                 streamSupportClasses);
 
-            programClassPool.classesAccept(streamSupportVisitor);
-            libraryClassPool.classesAccept(streamSupportVisitor);
+            appView.programClassPool.classesAccept(streamSupportVisitor);
+            appView.libraryClassPool.classesAccept(streamSupportVisitor);
 
             if (streamSupportClasses.getCount() > 0)
             {
                 WarningPrinter streamSupportWarningPrinter =
-                    new WarningPrinter(err, configuration.warn);
+                    new WarningLogger(logger, configuration.warn);
 
                 ClassPool modifiedClasses = new ClassPool();
                 ClassVisitor modifiedClassCollector =
                     new ClassPoolFiller(modifiedClasses);
 
-                programClassPool.classesAccept(
+                appView.programClassPool.classesAccept(
                     // Do not process classes of the stream support library itself.
                     new ClassNameFilter("!java8/**",
-                    new StreamSupportConverter(programClassPool,
-                                               libraryClassPool,
+                    new StreamSupportConverter(appView.programClassPool,
+                                               appView.libraryClassPool,
                                                streamSupportWarningPrinter,
                                                modifiedClassCollector,
                                                replacedStreamsMethodCallCounter)));
 
                 // Re-Initialize references in modified classes.
                 modifiedClasses.classesAccept(
-                    new ClassReferenceInitializer(programClassPool,
-                                                  libraryClassPool));
+                    new ClassReferenceInitializer(appView.programClassPool,
+                                                  appView.libraryClassPool));
 
                 int conversionWarningCount = streamSupportWarningPrinter.getWarningCount();
                 if (conversionWarningCount > 0)
                 {
-                    err.println("Warning: there were " + conversionWarningCount +
-                                " Java 8 stream API method calls that could not be backported.");
-                    err.println("      You should check if a your project setup is correct (compileSdkVersion, streamsupport dependency).");
-                    err.println("      For more information, consult the section \'Integration->Gradle Plugin->Java 8 stream API support\' in our manual");
+                    logger.warn("Warning: there were {} Java 8 stream API method calls that could not be backported.",
+                                 conversionWarningCount);
+                    logger.warn("      You should check if a your project setup is correct (compileSdkVersion, streamsupport dependency).");
+                    logger.warn("      For more information, consult the section \'Integration->Gradle Plugin->Java 8 stream API support\' in our manual");
                 }
             }
         }
@@ -274,39 +269,39 @@ public class Backporter
                 new ClassNameFilter("org/threeten/bp/**",
                 threetenClasses);
 
-            programClassPool.classesAccept(threetenClassVisitor);
-            libraryClassPool.classesAccept(threetenClassVisitor);
+            appView.programClassPool.classesAccept(threetenClassVisitor);
+            appView.libraryClassPool.classesAccept(threetenClassVisitor);
 
             if (threetenClasses.getCount() > 0)
             {
                 WarningPrinter threetenWarningPrinter =
-                    new WarningPrinter(err, configuration.warn);
+                    new WarningLogger(logger, configuration.warn);
 
                 ClassPool modifiedClasses = new ClassPool();
                 ClassVisitor modifiedClassCollector =
                     new ClassPoolFiller(modifiedClasses);
 
-                programClassPool.classesAccept(
+                appView.programClassPool.classesAccept(
                     // Do not process classes of the threeten library itself.
                     new ClassNameFilter("!org/threeten/bp/**",
-                                        new JSR310Converter(programClassPool,
-                                                            libraryClassPool,
+                                        new JSR310Converter(appView.programClassPool,
+                                                            appView.libraryClassPool,
                                                             threetenWarningPrinter,
                                                             modifiedClassCollector,
                                                             replacedTimeMethodCallCounter)));
 
                 // Re-Initialize references in modified classes.
                 modifiedClasses.classesAccept(
-                    new ClassReferenceInitializer(programClassPool,
-                                                  libraryClassPool));
+                    new ClassReferenceInitializer(appView.programClassPool,
+                                                  appView.libraryClassPool));
 
                 int conversionWarningCount = threetenWarningPrinter.getWarningCount();
                 if (conversionWarningCount > 0)
                 {
-                    err.println("Warning: there were " + conversionWarningCount +
-                                " Java 8 time API method calls that could not be backported.");
-                    err.println("      You should check if a your project setup is correct (compileSdkVersion, threetenbp dependency).");
-                    err.println("      For more information, consult the section \'Integration->Gradle Plugin->Java 8 time API support\' in our manual");
+                    logger.warn("Warning: there were {} Java 8 time API method calls that could not be backported.",
+                                 conversionWarningCount);
+                    logger.warn("      You should check if a your project setup is correct (compileSdkVersion, threetenbp dependency).");
+                    logger.warn("      For more information, consult the section \'Integration->Gradle Plugin->Java 8 time API support\' in our manual");
                 }
             }
         }
@@ -316,18 +311,15 @@ public class Backporter
             // Set the class version of all classes in the program ClassPool
             // to the specified target version. This is needed to perform
             // optimization on the backported + generated classes.
-            programClassPool.classesAccept(new ClassVersionSetter(targetClassVersion));
+            appView.programClassPool.classesAccept(new ClassVersionSetter(targetClassVersion));
         }
 
-        if (configuration.verbose)
-        {
-            System.out.println("  Number of converted string concatenations:     " + replacedStringConcatCounter.getCount());
-            System.out.println("  Number of converted lambda expressions:        " + lambdaExpressionCounter.getCount());
-            System.out.println("  Number of converted static interface methods:  " + staticInterfaceMethodCounter.getCount());
-            System.out.println("  Number of converted default interface methods: " + defaultInterfaceMethodCounter.getCount());
-            System.out.println("  Number of replaced Java 7+ method calls:       " + replacedMethodCallCounter.getCount());
-            System.out.println("  Number of replaced Java 8 stream method calls: " + replacedStreamsMethodCallCounter.getCount());
-            System.out.println("  Number of replaced Java 8 time method calls:   " + replacedTimeMethodCallCounter.getCount());
-        }
+        logger.info("  Number of converted string concatenations:     {}", replacedStringConcatCounter.getCount());
+        logger.info("  Number of converted lambda expressions:        {}", lambdaExpressionCounter.getCount());
+        logger.info("  Number of converted static interface methods:  {}", staticInterfaceMethodCounter.getCount());
+        logger.info("  Number of converted default interface methods: {}", defaultInterfaceMethodCounter.getCount());
+        logger.info("  Number of replaced Java 7+ method calls:       {}", replacedMethodCallCounter.getCount());
+        logger.info("  Number of replaced Java 8 stream method calls: {}", replacedStreamsMethodCallCounter.getCount());
+        logger.info("  Number of replaced Java 8 time method calls:   {}", replacedTimeMethodCallCounter.getCount());
     }
 }

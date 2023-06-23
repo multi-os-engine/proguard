@@ -2,7 +2,7 @@
  * ProGuard -- shrinking, optimization, obfuscation, and preverification
  *             of Java bytecode.
  *
- * Copyright (c) 2002-2021 Guardsquare NV
+ * Copyright (c) 2002-2022 Guardsquare NV
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -20,6 +20,8 @@
  */
 package proguard.optimize;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.*;
 import proguard.classfile.*;
 import proguard.classfile.attribute.Attribute;
@@ -37,19 +39,23 @@ import proguard.optimize.evaluation.*;
 import proguard.optimize.evaluation.InstructionUsageMarker;
 import proguard.optimize.info.*;
 import proguard.optimize.peephole.*;
+import proguard.pass.Pass;
 import proguard.util.*;
 
 import java.io.*;
 import java.util.*;
 
 /**
- * This class optimizes class pools according to a given configuration.
+ * This pass optimizes class pools according to a given configuration.
+ *
+ * This pass is stateful. It tracks when no more optimizations are
+ * possible, and then all further runs of this pass will have no effect.
  *
  * @author Eric Lafortune
  */
-public class Optimizer
+public class Optimizer implements Pass
 {
-    public  static final boolean DETAILS = System.getProperty("optd") != null;
+    private static final Logger logger = LogManager.getLogger(Optimizer.class);
 
     public  static final String LIBRARY_GSON                         = "library/gson";
     private static final String CLASS_MARKING_FINAL                  = "class/marking/final";
@@ -133,56 +139,68 @@ public class Optimizer
     };
 
 
+    private boolean libraryGson;
+    private boolean classMarkingFinal;
+    private boolean classUnboxingEnum;
+    private boolean classMergingVertical;
+    private boolean classMergingHorizontal;
+    private boolean classMergingWrapper;
+    private boolean fieldRemovalWriteonly;
+    private boolean fieldMarkingPrivate;
+    private boolean fieldGeneralizationClass;
+    private boolean fieldSpecializationType;
+    private boolean fieldPropagationValue;
+    private boolean methodMarkingPrivate;
+    private boolean methodMarkingStatic;
+    private boolean methodMarkingFinal;
+    private boolean methodMarkingSynchronized;
+    private boolean methodRemovalParameter;
+    private boolean methodGeneralizationClass;
+    private boolean methodSpecializationParametertype;
+    private boolean methodSpecializationReturntype;
+    private boolean methodPropagationParameter;
+    private boolean methodPropagationReturnvalue;
+    private boolean methodInliningShort;
+    private boolean methodInliningUnique;
+    private boolean methodInliningTailrecursion;
+    private boolean codeMerging;
+    private boolean codeSimplificationVariable;
+    private boolean codeSimplificationArithmetic;
+    private boolean codeSimplificationCast;
+    private boolean codeSimplificationField;
+    private boolean codeSimplificationBranch;
+    private boolean codeSimplificationObject;
+    private boolean codeSimplificationString;
+    private boolean codeSimplificationMath;
+    private boolean codeSimplificationPeephole;
+    private boolean codeSimplificationAdvanced;
+    private boolean codeRemovalAdvanced;
+    private boolean codeRemovalSimple;
+    private boolean codeRemovalVariable;
+    private boolean codeRemovalException;
+    private boolean codeAllocationVariable;
+
+
+    // The optimizer uses this field to communicate to its following
+    // invocations that no further optimizations are possible.
+    private boolean moreOptimizationsPossible = true;
+    private int     passIndex = 0;
+
     private final Configuration configuration;
 
-    private final boolean libraryGson;
-    private final boolean classMarkingFinal;
-    private final boolean classUnboxingEnum;
-    private final boolean classMergingVertical;
-    private final boolean classMergingHorizontal;
-    private final boolean classMergingWrapper;
-    private final boolean fieldRemovalWriteonly;
-    private final boolean fieldMarkingPrivate;
-    private final boolean fieldGeneralizationClass;
-    private final boolean fieldSpecializationType;
-    private final boolean fieldPropagationValue;
-    private final boolean methodMarkingPrivate;
-    private final boolean methodMarkingStatic;
-    private final boolean methodMarkingFinal;
-    private final boolean methodMarkingSynchronized;
-    private final boolean methodRemovalParameter;
-    private final boolean methodGeneralizationClass;
-    private final boolean methodSpecializationParametertype;
-    private final boolean methodSpecializationReturntype;
-    private final boolean methodPropagationParameter;
-    private final boolean methodPropagationReturnvalue;
-    private final boolean methodInliningShort;
-    private final boolean methodInliningUnique;
-    private final boolean methodInliningTailrecursion;
-    private final boolean codeMerging;
-    private final boolean codeSimplificationVariable;
-    private final boolean codeSimplificationArithmetic;
-    private final boolean codeSimplificationCast;
-    private final boolean codeSimplificationField;
-    private final boolean codeSimplificationBranch;
-    private final boolean codeSimplificationObject;
-    private final boolean codeSimplificationString;
-    private final boolean codeSimplificationMath;
-    private final boolean codeSimplificationPeephole;
-    private       boolean codeSimplificationAdvanced;
-    private       boolean codeRemovalAdvanced;
-    private       boolean codeRemovalSimple;
-    private final boolean codeRemovalVariable;
-    private       boolean codeRemovalException;
-    private final boolean codeAllocationVariable;
-
-
-    /**
-     * Creates a new Optimizer.
-     */
     public Optimizer(Configuration configuration)
     {
         this.configuration = configuration;
+    }
+
+
+    @Override
+    public void execute(AppView appView) throws IOException
+    {
+        if (!moreOptimizationsPossible)
+        {
+            return;
+        }
 
         // Create a matcher for filtering optimizations.
         StringMatcher filter = configuration.optimizations != null ?
@@ -262,15 +280,25 @@ public class Optimizer
             codeSimplificationMath       ||
             fieldGeneralizationClass     ||
             methodGeneralizationClass;
+
+        logger.info("Optimizing (pass {}/{})...", passIndex + 1, configuration.optimizationPasses);
+
+        optimize(configuration,
+                 appView.programClassPool,
+                 appView.libraryClassPool,
+                 appView.extraDataEntryNameMap);
+
+        passIndex++;
     }
 
 
     /**
      * Performs optimization of the given program class pool.
      */
-    public boolean execute(final ClassPool             programClassPool,
-                           final ClassPool             libraryClassPool,
-                           final ExtraDataEntryNameMap extraDataEntryNameMap)
+    private void optimize(Configuration         configuration,
+                          ClassPool             programClassPool,
+                          ClassPool             libraryClassPool,
+                          ExtraDataEntryNameMap extraDataEntryNameMap)
     throws IOException
     {
         // Check if we have at least some keep commands.
@@ -1143,12 +1171,7 @@ public class Optimizer
 
         if (classMergingHorizontal)
         {
-            long start = 0;
-            if (DETAILS)
-            {
-                System.out.print("Merging classes horizontally....................");
-                start = System.currentTimeMillis();
-            }
+            long start = System.currentTimeMillis();
 
             Set<String> forbiddenClassNames = new HashSet<>();
 
@@ -1167,11 +1190,8 @@ public class Optimizer
                                           classMergingHorizontalCounter)
             );
 
-            if (DETAILS)
-            {
-                long end = System.currentTimeMillis();
-                System.out.printf(" took: %6d ms%n", (end - start));
-            }
+            long end = System.currentTimeMillis();
+            logger.trace("Merging classes horizontally.................... took: %6d ms", (end - start));
 
         }
 
@@ -1234,11 +1254,10 @@ public class Optimizer
                 new AllAttributeVisitor(
                 new DebugAttributeVisitor("Inlining single methods",
                 new OptimizationCodeAttributeFilter(
-                new MethodInliner(configuration.microEdition,
-                                  configuration.android,
-                                  configuration.allowAccessModification,
-                                  true,
-                                  methodInliningUniqueCounter)))))));
+                new SingleInvocationMethodInliner(configuration.microEdition,
+                                                  configuration.android,
+                                                  configuration.allowAccessModification,
+                                                  methodInliningUniqueCounter)))))));
         }
 
         if (methodInliningShort)
@@ -1250,11 +1269,10 @@ public class Optimizer
                 new AllAttributeVisitor(
                 new DebugAttributeVisitor("Inlining short methods",
                 new OptimizationCodeAttributeFilter(
-                new MethodInliner(configuration.microEdition,
-                                  configuration.android,
-                                  configuration.allowAccessModification,
-                                  false,
-                                  methodInliningShortCounter)))))));
+                new ShortMethodInliner(configuration.microEdition,
+                                       configuration.android,
+                                       configuration.allowAccessModification,
+                                       methodInliningShortCounter)))))));
         }
 
         if (methodInliningTailrecursion)
@@ -1353,7 +1371,8 @@ public class Optimizer
                             new InstructionSequenceConstants(programClassPool,
                                                              libraryClassPool);
 
-                        List<InstructionVisitor> peepholeOptimizations = createPeepholeOptimizations(sequences,
+                        List<InstructionVisitor> peepholeOptimizations = createPeepholeOptimizations(configuration,
+                                                                                 sequences,
                                                                                  branchTargetFinder,
                                                                                  codeAttributeEditor,
                                                                                  codeSimplificationVariableCounter,
@@ -1505,51 +1524,51 @@ public class Optimizer
             methodPropagationReturnvalueCount = 0;
         }
 
-        if (configuration.verbose)
+        logger.info("  Number of finalized classes:                   {}{}", classMarkingFinalCount,                  disabled(classMarkingFinal));
+        logger.info("  Number of unboxed enum classes:                {}{}", classUnboxingEnumCount,                  disabled(classUnboxingEnum));
+        logger.info("  Number of vertically merged classes:           {}{}", classMergingVerticalCount,               disabled(classMergingVertical));
+        logger.info("  Number of horizontally merged classes:         {}{}", classMergingHorizontalCount,             disabled(classMergingHorizontal));
+        logger.info("  Number of merged wrapper classes:              {}{}", classMergingWrapperCount,                disabled(classMergingWrapper));
+        logger.info("  Number of removed write-only fields:           {}{}", fieldRemovalWriteonlyCount,              disabled(fieldRemovalWriteonly));
+        logger.info("  Number of privatized fields:                   {}{}", fieldMarkingPrivateCount,                disabled(fieldMarkingPrivate));
+        logger.info("  Number of generalized field accesses:          {}{}", fieldGeneralizationClassCount,           disabled(fieldGeneralizationClass));
+        logger.info("  Number of specialized field types:             {}{}", fieldSpecializationTypeCount,            disabled(fieldSpecializationType));
+        logger.info("  Number of inlined constant fields:             {}{}", fieldPropagationValueCount,              disabled(fieldPropagationValue));
+        logger.info("  Number of privatized methods:                  {}{}", methodMarkingPrivateCount,               disabled(methodMarkingPrivate));
+        logger.info("  Number of staticized methods:                  {}{}", methodMarkingStaticCount,                disabled(methodMarkingStatic));
+        logger.info("  Number of finalized methods:                   {}{}", methodMarkingFinalCount,                 disabled(methodMarkingFinal));
+        logger.info("  Number of desynchronized methods:              {}{}", methodMarkingSynchronizedCount,          disabled(methodMarkingSynchronized));
+        logger.info("  Number of simplified method signatures:        {}{}", methodRemovalParameterCount1,            disabled(methodRemovalParameter));
+        logger.info("  Number of removed method parameters:           {}{}", methodRemovalParameterCount2,            disabled(methodRemovalParameter));
+        logger.info("  Number of generalized method invocations:      {}{}", methodGeneralizationClassCount,          disabled(methodGeneralizationClass));
+        logger.info("  Number of specialized method parameter types:  {}{}", methodSpecializationParametertypeCount,  disabled(methodSpecializationParametertype));
+        logger.info("  Number of specialized method return types:     {}{}", methodSpecializationReturntypeCount,     disabled(methodSpecializationReturntype));
+        logger.info("  Number of inlined constant parameters:         {}{}", methodPropagationParameterCount,         disabled(methodPropagationParameter));
+        logger.info("  Number of inlined constant return values:      {}{}", methodPropagationReturnvalueCount,       disabled(methodPropagationReturnvalue));
+        logger.info("  Number of inlined short method calls:          {}{}", methodInliningShortCount,                disabled(methodInliningShort));
+        logger.info("  Number of inlined unique method calls:         {}{}", methodInliningUniqueCount,               disabled(methodInliningUnique));
+        logger.info("  Number of inlined tail recursion calls:        {}{}", methodInliningTailrecursionCount,        disabled(methodInliningTailrecursion));
+        logger.info("  Number of merged code blocks:                  {}{}", codeMergingCount,                        disabled(codeMerging));
+        logger.info("  Number of variable peephole optimizations:     {}{}", codeSimplificationVariableCount,         disabled(codeSimplificationVariable));
+        logger.info("  Number of arithmetic peephole optimizations:   {}{}", codeSimplificationArithmeticCount,       disabled(codeSimplificationArithmetic));
+        logger.info("  Number of cast peephole optimizations:         {}{}", codeSimplificationCastCount,             disabled(codeSimplificationCast));
+        logger.info("  Number of field peephole optimizations:        {}{}", codeSimplificationFieldCount,            disabled(codeSimplificationField));
+        logger.info("  Number of branch peephole optimizations:       {}{}", codeSimplificationBranchCount,           disabled(codeSimplificationBranch));
+        logger.info("  Number of object peephole optimizations:       {}{}", codeSimplificationObjectCount,           disabled(codeSimplificationObject));
+        logger.info("  Number of string peephole optimizations:       {}{}", codeSimplificationStringCount,           disabled(codeSimplificationString));
+        logger.info("  Number of math peephole optimizations:         {}{}", codeSimplificationMathCount,             disabled(codeSimplificationMath));
+        if (configuration.android)
         {
-            System.out.println("  Number of finalized classes:                   " + classMarkingFinalCount                 + disabled(classMarkingFinal));
-            System.out.println("  Number of unboxed enum classes:                " + classUnboxingEnumCount                 + disabled(classUnboxingEnum));
-            System.out.println("  Number of vertically merged classes:           " + classMergingVerticalCount              + disabled(classMergingVertical));
-            System.out.println("  Number of horizontally merged classes:         " + classMergingHorizontalCount            + disabled(classMergingHorizontal));
-            System.out.println("  Number of merged wrapper classes:              " + classMergingWrapperCount               + disabled(classMergingWrapper));
-            System.out.println("  Number of removed write-only fields:           " + fieldRemovalWriteonlyCount             + disabled(fieldRemovalWriteonly));
-            System.out.println("  Number of privatized fields:                   " + fieldMarkingPrivateCount               + disabled(fieldMarkingPrivate));
-            System.out.println("  Number of generalized field accesses:          " + fieldGeneralizationClassCount          + disabled(fieldGeneralizationClass));
-            System.out.println("  Number of specialized field types:             " + fieldSpecializationTypeCount           + disabled(fieldSpecializationType));
-            System.out.println("  Number of inlined constant fields:             " + fieldPropagationValueCount             + disabled(fieldPropagationValue));
-            System.out.println("  Number of privatized methods:                  " + methodMarkingPrivateCount              + disabled(methodMarkingPrivate));
-            System.out.println("  Number of staticized methods:                  " + methodMarkingStaticCount               + disabled(methodMarkingStatic));
-            System.out.println("  Number of finalized methods:                   " + methodMarkingFinalCount                + disabled(methodMarkingFinal));
-            System.out.println("  Number of desynchronized methods:              " + methodMarkingSynchronizedCount         + disabled(methodMarkingSynchronized));
-            System.out.println("  Number of simplified method signatures:        " + methodRemovalParameterCount1           + disabled(methodRemovalParameter));
-            System.out.println("  Number of removed method parameters:           " + methodRemovalParameterCount2           + disabled(methodRemovalParameter));
-            System.out.println("  Number of generalized method invocations:      " + methodGeneralizationClassCount         + disabled(methodGeneralizationClass));
-            System.out.println("  Number of specialized method parameter types:  " + methodSpecializationParametertypeCount + disabled(methodSpecializationParametertype));
-            System.out.println("  Number of specialized method return types:     " + methodSpecializationReturntypeCount    + disabled(methodSpecializationReturntype));
-            System.out.println("  Number of inlined constant parameters:         " + methodPropagationParameterCount        + disabled(methodPropagationParameter));
-            System.out.println("  Number of inlined constant return values:      " + methodPropagationReturnvalueCount      + disabled(methodPropagationReturnvalue));
-            System.out.println("  Number of inlined short method calls:          " + methodInliningShortCount               + disabled(methodInliningShort));
-            System.out.println("  Number of inlined unique method calls:         " + methodInliningUniqueCount              + disabled(methodInliningUnique));
-            System.out.println("  Number of inlined tail recursion calls:        " + methodInliningTailrecursionCount       + disabled(methodInliningTailrecursion));
-            System.out.println("  Number of merged code blocks:                  " + codeMergingCount                       + disabled(codeMerging));
-            System.out.println("  Number of variable peephole optimizations:     " + codeSimplificationVariableCount        + disabled(codeSimplificationVariable));
-            System.out.println("  Number of arithmetic peephole optimizations:   " + codeSimplificationArithmeticCount      + disabled(codeSimplificationArithmetic));
-            System.out.println("  Number of cast peephole optimizations:         " + codeSimplificationCastCount            + disabled(codeSimplificationCast));
-            System.out.println("  Number of field peephole optimizations:        " + codeSimplificationFieldCount           + disabled(codeSimplificationField));
-            System.out.println("  Number of branch peephole optimizations:       " + codeSimplificationBranchCount          + disabled(codeSimplificationBranch));
-            System.out.println("  Number of object peephole optimizations:       " + codeSimplificationObjectCount          + disabled(codeSimplificationObject));
-            System.out.println("  Number of string peephole optimizations:       " + codeSimplificationStringCount          + disabled(codeSimplificationString));
-            System.out.println("  Number of math peephole optimizations:         " + codeSimplificationMathCount            + disabled(codeSimplificationMath));
-            if (configuration.android)
-            System.out.println("  Number of Android math peephole optimizations: " + codeSimplificationAndroidMathCount     + disabled(codeSimplificationMath));
-            System.out.println("  Number of simplified instructions:             " + codeSimplificationAdvancedCount        + disabled(codeSimplificationAdvanced));
-            System.out.println("  Number of removed instructions:                " + codeRemovalCount                       + disabled(codeRemovalAdvanced));
-            System.out.println("  Number of removed local variables:             " + codeRemovalVariableCount               + disabled(codeRemovalVariable));
-            System.out.println("  Number of removed exception blocks:            " + codeRemovalExceptionCount              + disabled(codeRemovalException));
-            System.out.println("  Number of optimized local variable frames:     " + codeAllocationVariableCount            + disabled(codeAllocationVariable));
+            logger.info("  Number of Android math peephole optimizations: {}{}", codeSimplificationAndroidMathCount,  disabled(codeSimplificationMath));
         }
+        logger.info("  Number of simplified instructions:             {}{}", codeSimplificationAdvancedCount,         disabled(codeSimplificationAdvanced));
+        logger.info("  Number of removed instructions:                {}{}", codeRemovalCount,                        disabled(codeRemovalAdvanced));
+        logger.info("  Number of removed local variables:             {}{}", codeRemovalVariableCount,                disabled(codeRemovalVariable));
+        logger.info("  Number of removed exception blocks:            {}{}", codeRemovalExceptionCount,               disabled(codeRemovalException));
+        logger.info("  Number of optimized local variable frames:     {}{}", codeAllocationVariableCount,             disabled(codeAllocationVariable));
 
-        return classMarkingFinalCount                 > 0 ||
+        moreOptimizationsPossible =
+               classMarkingFinalCount                 > 0 ||
                classUnboxingEnumCount                 > 0 ||
                classMergingVerticalCount              > 0 ||
                classMergingHorizontalCount            > 0 ||
@@ -1590,7 +1609,8 @@ public class Optimizer
     }
 
 
-    private List<InstructionVisitor> createPeepholeOptimizations(InstructionSequenceConstants sequences,
+    private List<InstructionVisitor> createPeepholeOptimizations(Configuration configuration,
+                                             InstructionSequenceConstants sequences,
                                              BranchTargetFinder           branchTargetFinder,
                                              CodeAttributeEditor          codeAttributeEditor,
                                              InstructionCounter           codeSimplificationVariableCounter,

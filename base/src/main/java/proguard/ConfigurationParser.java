@@ -36,7 +36,7 @@ import java.util.*;
  *
  * @author Eric Lafortune
  */
-public class ConfigurationParser
+public class ConfigurationParser implements AutoCloseable
 {
     private final WordReader reader;
     private final Properties properties;
@@ -242,6 +242,7 @@ public class ConfigurationParser
      * Closes the configuration.
      * @throws IOException if an IO error occurs while closing the configuration.
      */
+    @Override
     public void close() throws IOException
     {
         if (reader != null)
@@ -2060,20 +2061,13 @@ public class ConfigurationParser
     {
         try
         {
-            ConfigurationParser parser =
-                new ConfigurationParser(args, System.getProperties());
-
-            try
+            try (ConfigurationParser parser = new ConfigurationParser(args, System.getProperties()))
             {
                 parser.parse(new Configuration());
             }
             catch (ParseException ex)
             {
                 ex.printStackTrace();
-            }
-            finally
-            {
-                parser.close();
             }
         }
         catch (IOException ex)

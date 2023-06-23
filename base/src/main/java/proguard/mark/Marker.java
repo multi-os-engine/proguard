@@ -20,6 +20,8 @@
  */
 package proguard.mark;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import proguard.*;
 import proguard.classfile.*;
 import proguard.classfile.attribute.Attribute;
@@ -28,6 +30,7 @@ import proguard.classfile.kotlin.*;
 import proguard.classfile.kotlin.visitor.*;
 import proguard.classfile.util.AllParameterVisitor;
 import proguard.classfile.visitor.*;
+import proguard.pass.Pass;
 import proguard.util.*;
 
 import java.util.Arrays;
@@ -36,19 +39,17 @@ import static proguard.util.ProcessingFlags.*;
 import static proguard.util.ProcessingFlags.DONT_OBFUSCATE;
 
 /**
- * Translates the keep rules and other class specifications from the
+ * This pass translates the keep rules and other class specifications from the
  * configuration into processing flags on classes and class members.
  *
  * @author Johan Leys
  */
-public class Marker
+public class Marker implements Pass
 {
+    private static final Logger logger = LogManager.getLogger(Marker.class);
+
     private final Configuration configuration;
 
-
-    /**
-     * Creates a new Marker for the given configuration.
-     */
     public Marker(Configuration configuration)
     {
         this.configuration = configuration;
@@ -60,21 +61,22 @@ public class Marker
      * appropriate access flags, corresponding to the class specifications
      * in the configuration.
      */
-    public void mark(ClassPool programClassPool,
-                     ClassPool libraryClassPool)
+    @Override
+    public void execute(AppView appView)
     {
+        logger.info("Marking classes and class members to be kept...");
 
         // Create a combined ClassPool visitor for marking classes.
         MultiClassPoolVisitor classPoolVisitor =
             new MultiClassPoolVisitor(
-                createShrinkingMarker(),
-                createOptimizationMarker(),
-                createObfuscationMarker()
+                createShrinkingMarker(configuration),
+                createOptimizationMarker(configuration),
+                createObfuscationMarker(configuration)
             );
 
         // Mark the seeds.
-        programClassPool.accept(classPoolVisitor);
-        libraryClassPool.accept(classPoolVisitor);
+        appView.programClassPool.accept(classPoolVisitor);
+        appView.libraryClassPool.accept(classPoolVisitor);
 
         if (configuration.keepKotlinMetadata)
         {
@@ -85,20 +87,20 @@ public class Marker
                     new ProcessingFlagSetter(ProcessingFlags.DONT_SHRINK | ProcessingFlags.DONT_OPTIMIZE | ProcessingFlags.DONT_OBFUSCATE),
                     new AllMemberVisitor(
                         new ProcessingFlagSetter(ProcessingFlags.DONT_SHRINK | ProcessingFlags.DONT_OPTIMIZE | ProcessingFlags.DONT_OBFUSCATE))));
-            programClassPool.classesAccept(classVisitor);
-            libraryClassPool.classesAccept(classVisitor);
+            appView.programClassPool.classesAccept(classVisitor);
+            appView.libraryClassPool.classesAccept(classVisitor);
         }
 
         if (configuration.keepKotlinMetadata)
         {
-            disableOptimizationForKotlinFeatures(programClassPool, libraryClassPool);
+            disableOptimizationForKotlinFeatures(appView.programClassPool, appView.libraryClassPool);
         }
     }
 
 
     // Small utility methods.
 
-    private ClassPoolVisitor createShrinkingMarker()
+    private ClassPoolVisitor createShrinkingMarker(Configuration configuration)
     {
         // Automatically mark the parameterless constructors of seed classes,
         // mainly for convenience and for backward compatibility.
@@ -120,7 +122,7 @@ public class Marker
     }
 
 
-    private ClassPoolVisitor createOptimizationMarker()
+    private ClassPoolVisitor createOptimizationMarker(Configuration configuration)
     {
         ProcessingFlagSetter marker =
             new ProcessingFlagSetter(ProcessingFlags.DONT_OPTIMIZE);
@@ -156,7 +158,7 @@ public class Marker
     }
 
 
-    private ClassPoolVisitor createObfuscationMarker()
+    private ClassPoolVisitor createObfuscationMarker(Configuration configuration)
     {
         // We exclude injected classes from any user-defined pattern
         // that prevents obfuscation.

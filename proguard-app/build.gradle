@@ -29,6 +29,7 @@ task fatJar(type: ShadowJar) {
     manifest {
         attributes(
                 'Main-Class': 'proguard.ProGuard',
+                'Multi-Release': true,
                 'Implementation-Version': archiveVersion.get())
     }
 }

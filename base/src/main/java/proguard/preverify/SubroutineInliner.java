@@ -20,25 +20,27 @@
  */
 package proguard.preverify;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import proguard.AppView;
 import proguard.Configuration;
 import proguard.classfile.*;
 import proguard.classfile.attribute.visitor.AllAttributeVisitor;
 import proguard.classfile.visitor.*;
+import proguard.pass.Pass;
 
 /**
- * This class can inline subroutines in methods. This is generally useful (i.e.
+ * This pass can inline subroutines in methods. This is generally useful (i.e.
  * required) for preverifying code.
  *
  * @author Eric Lafortune
  */
-public class SubroutineInliner
+public class SubroutineInliner implements Pass
 {
+    private static final Logger logger = LogManager.getLogger(SubroutineInliner.class);
+
     private final Configuration configuration;
 
-
-    /**
-     * Creates a new SubroutineInliner.
-     */
     public SubroutineInliner(Configuration configuration)
     {
         this.configuration = configuration;
@@ -48,10 +50,13 @@ public class SubroutineInliner
     /**
      * Performs subroutine inlining of the given program class pool.
      */
-    public void execute(ClassPool programClassPool)
+    @Override
+    public void execute(AppView appView)
     {
+        logger.info("Inlining subroutines...");
+
         // Clean up any old processing info.
-        programClassPool.classesAccept(new ClassCleaner());
+        appView.programClassPool.classesAccept(new ClassCleaner());
 
         // Inline all subroutines.
         ClassVisitor inliner =
@@ -69,6 +74,6 @@ public class SubroutineInliner
                                        inliner);
         }
 
-        programClassPool.classesAccept(inliner);
+        appView.programClassPool.classesAccept(inliner);
     }
 }

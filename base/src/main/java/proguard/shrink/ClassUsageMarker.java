@@ -2,7 +2,7 @@
  * ProGuard -- shrinking, optimization, obfuscation, and preverification
  *             of Java bytecode.
  *
- * Copyright (c) 2002-2020 Guardsquare NV
+ * Copyright (c) 2002-2021 Guardsquare NV
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -23,6 +23,7 @@ package proguard.shrink;
 import proguard.classfile.*;
 import proguard.classfile.attribute.*;
 import proguard.classfile.attribute.annotation.*;
+import proguard.classfile.attribute.annotation.visitor.ElementValueVisitor;
 import proguard.classfile.attribute.module.*;
 import proguard.classfile.attribute.module.visitor.*;
 import proguard.classfile.attribute.preverification.*;
@@ -64,7 +65,7 @@ implements   ClassVisitor,
 //             LocalVariableInfoVisitor,
 //             LocalVariableTypeInfoVisitor,
 //             AnnotationVisitor,
-//             ElementValueVisitor,
+             ElementValueVisitor,
              RequiresInfoVisitor,
              ExportsInfoVisitor,
              OpensInfoVisitor,
@@ -1171,8 +1172,8 @@ implements   ClassVisitor,
         //
         //markConstant(clazz, annotationDefaultAttribute.u2attributeNameIndex);
         //
-        //// Mark the constant pool entries referenced by the element value.
-        //annotationDefaultAttribute.defaultValueAccept(clazz, this);
+        // Mark the constant pool entries referenced by the element value.
+        annotationDefaultAttribute.defaultValueAccept(clazz, this);
     }
 
 
@@ -1316,48 +1317,51 @@ implements   ClassVisitor,
 //    }
 //
 //
-//    // Implementations for ElementValueVisitor.
-//
-//    public void visitConstantElementValue(Clazz clazz, Annotation annotation, ConstantElementValue constantElementValue)
-//    {
+    // Implementations for ElementValueVisitor.
+
+    public void visitConstantElementValue(Clazz clazz, Annotation annotation, ConstantElementValue constantElementValue)
+    {
 //        markOptionalConstant(clazz, constantElementValue.u2elementNameIndex);
 //        markConstant(        clazz, constantElementValue.u2constantValueIndex);
-//    }
-//
-//
-//    public void visitEnumConstantElementValue(Clazz clazz, Annotation annotation, EnumConstantElementValue enumConstantElementValue)
-//    {
+    }
+
+
+    public void visitEnumConstantElementValue(Clazz clazz, Annotation annotation, EnumConstantElementValue enumConstantElementValue)
+    {
 //        markOptionalConstant(clazz, enumConstantElementValue.u2elementNameIndex);
 //        markConstant(        clazz, enumConstantElementValue.u2typeNameIndex);
 //        markConstant(        clazz, enumConstantElementValue.u2constantNameIndex);
-//    }
-//
-//
-//    public void visitClassElementValue(Clazz clazz, Annotation annotation, ClassElementValue classElementValue)
-//    {
+
+        // Mark the referenced field as used.
+        enumConstantElementValue.referencedFieldAccept(this);
+    }
+
+
+    public void visitClassElementValue(Clazz clazz, Annotation annotation, ClassElementValue classElementValue)
+    {
 //        markOptionalConstant(clazz, classElementValue.u2elementNameIndex);
 //
 //        // Mark the referenced class constant pool entry.
 //        markConstant(clazz, classElementValue.u2classInfoIndex);
-//    }
-//
-//
-//    public void visitAnnotationElementValue(Clazz clazz, Annotation annotation, AnnotationElementValue annotationElementValue)
-//    {
+    }
+
+
+    public void visitAnnotationElementValue(Clazz clazz, Annotation annotation, AnnotationElementValue annotationElementValue)
+    {
 //        markOptionalConstant(clazz, annotationElementValue.u2elementNameIndex);
 //
 //        // Mark the constant pool entries referenced by the annotation.
 //        annotationElementValue.annotationAccept(clazz, this);
-//    }
-//
-//
-//    public void visitArrayElementValue(Clazz clazz, Annotation annotation, ArrayElementValue arrayElementValue)
-//    {
+    }
+
+
+    public void visitArrayElementValue(Clazz clazz, Annotation annotation, ArrayElementValue arrayElementValue)
+    {
 //        markOptionalConstant(clazz, arrayElementValue.u2elementNameIndex);
 //
 //        // Mark the constant pool entries referenced by the element values.
 //        arrayElementValue.elementValuesAccept(clazz, annotation, this);
-//    }
+    }
 
 
     // Implementations for InstructionVisitor.
@@ -1572,6 +1576,7 @@ implements   ClassVisitor,
 
                 markAsUsed(kotlinClassKindMetadata.superTypes);
                 markAsUsed(kotlinClassKindMetadata.typeParameters);
+                markAsUsed(kotlinClassKindMetadata.underlyingPropertyType);
 
                 if (kotlinClassKindMetadata.flags.isAnnotationClass)
                 {
@@ -1590,9 +1595,10 @@ implements   ClassVisitor,
                     clazz.fieldAccept(KotlinConstants.KOTLIN_OBJECT_INSTANCE_FIELD_NAME, null, ClassUsageMarker.this);
                 }
 
-                kotlinClassKindMetadata.superTypesAccept(        clazz, this);
-                kotlinClassKindMetadata.typeParametersAccept(    clazz, this);
-                kotlinClassKindMetadata.versionRequirementAccept(clazz, this);
+                kotlinClassKindMetadata.superTypesAccept(                       clazz, this);
+                kotlinClassKindMetadata.typeParametersAccept(                   clazz, this);
+                kotlinClassKindMetadata.versionRequirementAccept(               clazz, this);
+                kotlinClassKindMetadata.inlineClassUnderlyingPropertyTypeAccept(clazz, this);
             }
         }
 
@@ -1947,8 +1953,7 @@ implements   ClassVisitor,
         // Implementations for KotlinAnnotationVisitor.
 
         @Override
-        public void visitAnyAnnotation(Clazz                    clazz,
-                                       KotlinMetadataAnnotation annotation)
+        public void visitAnyAnnotation(Clazz clazz, KotlinAnnotatable annotatable, KotlinAnnotation  annotation)
         {
             if (!isUsed(annotation))
             {
