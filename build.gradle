@@ -143,35 +143,35 @@ allprojects { Project project ->
     }
 }
 
-distributions {
-    main {
-        distributionBaseName.set('proguard')
-        contents {
-            into('lib') {
-                from tasks.getByPath(':proguard-app:fatJar').outputs
-                from tasks.getByPath(':gui:fatJar').outputs
-                from tasks.getByPath(':retrace:fatJar').outputs
-                from tasks.getByPath(':ant:fatJar').outputs
-            }
-            into('docs') {
-                from('docs/md') {
-                    includeEmptyDirs = false
-                    include '**/*.md'
-                }
-            }
-            from(rootDir) {
-                include 'bin/'
-                include 'examples/'
-                exclude 'examples/*/build'
-                exclude 'examples/*/.gradle'
-                include 'LICENSE'
-                include 'LICENSE_exception.md'
-            }
-        }
-    }
-}
+//distributions {
+//    main {
+//        distributionBaseName.set('proguard')
+//        contents {
+//            into('lib') {
+//                from tasks.getByPath(':proguard-app:fatJar').outputs
+//                from tasks.getByPath(':gui:fatJar').outputs
+//                from tasks.getByPath(':retrace:fatJar').outputs
+//                from tasks.getByPath(':ant:fatJar').outputs
+//            }
+//            into('docs') {
+//                from('docs/md') {
+//                    includeEmptyDirs = false
+//                    include '**/*.md'
+//                }
+//            }
+//            from(rootDir) {
+//                include 'bin/'
+//                include 'examples/'
+//                exclude 'examples/*/build'
+//                exclude 'examples/*/.gradle'
+//                include 'LICENSE'
+//                include 'LICENSE_exception.md'
+//            }
+//        }
+//    }
+//}
 
-distTar {
+/*distTar {
     compression = Compression.GZIP
     archiveExtension.set('tar.gz')
 }
@@ -180,4 +180,4 @@ clean {
     delete file("$rootDir/lib")
 // TODO docker runs as root, so cannot clean the HTML yet
 //    delete buildDocumentation.outputs
-}
+}*/

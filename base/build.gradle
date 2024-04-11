@@ -2,10 +2,10 @@ plugins {
     id 'java-library'
     id 'java-test-fixtures'
     id 'maven-publish'
-    id "org.jetbrains.kotlin.jvm" version "$kotlinVersion"
+    id "org.jetbrains.kotlin.jvm" //version "$kotlinVersion"
     id 'com.adarshr.test-logger' version '3.0.0'
     id 'de.jansauer.printcoverage' version '2.0.0'
-    id 'jacoco'
+//    id 'jacoco'
     id "org.jlleitschuh.gradle.ktlint" version '10.2.1'
 }
 
@@ -20,7 +20,7 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile) {
 }
 
 dependencies {
-    api project(':proguard-core')
+    api project(':proguard-core:core-base')
     implementation "com.google.code.gson:gson:${gsonVersion}"
     implementation 'org.apache.logging.log4j:log4j-api:2.19.0'
     implementation 'org.apache.logging.log4j:log4j-core:2.19.0'
@@ -76,21 +76,21 @@ task testAllJavaVersions() { testAllTask ->
     }
 }
 
-jacocoTestReport {
-    // Define which classes need to be monitored
-    def sources = files(project.sourceSets.main.allSource.srcDirs)
-    sourceDirectories.setFrom(sources)
-    additionalSourceDirs.setFrom(sources)
-    sourceDirectories.setFrom(sources)
-    def classes = files(project.sourceSets.main.output.classesDirs)
-    classDirectories.setFrom(classes)
-    executionData.setFrom project.fileTree(dir: '.', include: '**/build/jacoco/*.exec')
-    reports {
-        xml.enabled true
-        csv.enabled false
-        html.destination file("${buildDir}/reports/coverage")
-    }
-}
+//jacocoTestReport {
+//    // Define which classes need to be monitored
+//    def sources = files(project.sourceSets.main.allSource.srcDirs)
+//    sourceDirectories.setFrom(sources)
+//    additionalSourceDirs.setFrom(sources)
+//    sourceDirectories.setFrom(sources)
+//    def classes = files(project.sourceSets.main.output.classesDirs)
+//    classDirectories.setFrom(classes)
+//    executionData.setFrom project.fileTree(dir: '.', include: '**/build/jacoco/*.exec')
+//    reports {
+//        xml.enabled true
+//        csv.enabled false
+//        html.destination file("${buildDir}/reports/coverage")
+//    }
+//}
 
 afterEvaluate {
     publishing {
