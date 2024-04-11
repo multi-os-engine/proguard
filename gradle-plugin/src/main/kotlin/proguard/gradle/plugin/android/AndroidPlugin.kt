@@ -28,6 +28,7 @@ import com.android.build.gradle.LibraryExtension
 import com.android.build.gradle.api.BaseVariant
 import com.android.build.gradle.internal.res.LinkApplicationAndroidResourcesTask
 import com.android.build.gradle.internal.tasks.factory.dependsOn
+import com.github.zafarkhaja.semver.Version
 import java.io.File
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
@@ -36,7 +37,6 @@ import org.gradle.api.Task
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.attributes.Attribute
 import org.gradle.api.tasks.TaskProvider
-import org.gradle.util.VersionNumber
 import proguard.gradle.plugin.android.AndroidProjectType.ANDROID_APPLICATION
 import proguard.gradle.plugin.android.AndroidProjectType.ANDROID_LIBRARY
 import proguard.gradle.plugin.android.dsl.ProGuardAndroidExtension
@@ -44,6 +44,7 @@ import proguard.gradle.plugin.android.dsl.ProGuardConfiguration
 import proguard.gradle.plugin.android.dsl.UserProGuardConfiguration
 import proguard.gradle.plugin.android.dsl.VariantConfiguration
 import proguard.gradle.plugin.android.tasks.CollectConsumerRulesTask
+import proguard.gradle.plugin.android.tasks.ConsumerRuleFilterEntry
 import proguard.gradle.plugin.android.tasks.PrepareProguardConfigDirectoryTask
 import proguard.gradle.plugin.android.transforms.AndroidConsumerRulesTransform
 import proguard.gradle.plugin.android.transforms.ArchiveConsumerRulesTransform
@@ -109,7 +110,8 @@ class AndroidPlugin(private val androidExtension: BaseExtension) : Plugin<Projec
         if (!androidExtension.aaptAdditionalParameters.contains("--proguard")) {
             androidExtension.aaptAdditionalParameters.addAll(listOf(
                     "--proguard",
-                    "${project.buildDir.absolutePath}/intermediates/proguard/configs/aapt_rules.pro"))
+                    project.buildDir.resolve("intermediates/proguard/configs/aapt_rules.pro").absolutePath)
+            )
         }
 
         if (!androidExtension.aaptAdditionalParameters.contains("--proguard-conditional-keep-rules")) {
@@ -127,7 +129,8 @@ class AndroidPlugin(private val androidExtension: BaseExtension) : Plugin<Projec
                     project,
                     variant,
                     createConsumerRulesConfiguration(project, variant),
-                    File("${project.buildDir}/intermediates/proguard/configs")))
+                    matchingConfiguration.consumerRuleFilter,
+                    project.buildDir.resolve("intermediates/proguard/configs")))
         }
         return matchingConfiguration
     }
@@ -136,13 +139,26 @@ class AndroidPlugin(private val androidExtension: BaseExtension) : Plugin<Projec
         project: Project,
         variant: BaseVariant,
         inputConfiguration: Configuration,
+        consumerRuleFilter: MutableList<String>,
         outputDir: File
-    ): TaskProvider<CollectConsumerRulesTask> =
-        project.tasks.register(COLLECT_CONSUMER_RULES_TASK_NAME + variant.name.capitalize(), CollectConsumerRulesTask::class.java) {
+    ): TaskProvider<CollectConsumerRulesTask> {
+
+        fun parseConsumerRuleFilter(consumerRuleFilter: List<String>) =
+            consumerRuleFilter.map { filter ->
+                val splits = filter.split(':')
+                if (splits.size != 2) {
+                    throw GradleException("Invalid consumer rule filter entry: ${filter}\nExpected an entry of the form: <group>:<module>")
+                }
+                ConsumerRuleFilterEntry(splits[0], splits[1])
+            }
+
+        return project.tasks.register(COLLECT_CONSUMER_RULES_TASK_NAME + variant.name.capitalize(), CollectConsumerRulesTask::class.java) {
             it.consumerRulesConfiguration = inputConfiguration
+            it.consumerRuleFilter = parseConsumerRuleFilter(consumerRuleFilter)
             it.outputFile = File(File(outputDir, variant.dirName), CONSUMER_RULES_PRO)
             it.dependsOn(inputConfiguration.buildDependencies)
         }
+    }
 
     private fun createConsumerRulesConfiguration(project: Project, variant: BaseVariant): Configuration =
         project.configurations.create("${variant.name}ProGuardConsumerRulesArtifacts") {
@@ -202,13 +218,13 @@ class AndroidPlugin(private val androidExtension: BaseExtension) : Plugin<Projec
             val processResourcesTask = project.tasks.findByName("process${variant.name.capitalize()}Resources")
             processResourcesTask?.outputs?.doNotCacheIf("We need to regenerate the aapt_rules.pro file, sorry!") {
                 project.logger.debug("Disabling AAPT caching for ${variant.name}")
-                !File("${project.buildDir.absolutePath}/intermediates/proguard/configs/aapt_rules.pro").exists()
+                !project.buildDir.resolve("intermediates/proguard/configs/aapt_rules.pro").exists()
             }
         }
     }
 
     private fun warnOldProguardVersion(project: Project) {
-        if (agpVersion.major >= 7) return
+        if (agpVersion.majorVersion >= 7) return
 
         val message =
 """An older version of ProGuard has been detected on the classpath which can clash with ProGuard Gradle Plugin.
@@ -267,16 +283,7 @@ fun Iterable<VariantConfiguration>.findVariantConfiguration(variantName: String)
 fun Iterable<VariantConfiguration>.hasVariantConfiguration(variantName: String) =
         this.findVariantConfiguration(variantName) != null
 
-val agpVersion: VersionNumber
-    get() { // TODO update to use AGP7 version API
-        return try {
-            val clazz = Class.forName("com.android.builder.model.Version")
-            val version = clazz.fields.first { it.name == "ANDROID_GRADLE_PLUGIN_VERSION" }.get(null) as String
-            return VersionNumber.parse(version)
-        } catch (e: ClassNotFoundException) {
-            VersionNumber.UNKNOWN
-        }
-    }
+val agpVersion: Version = Version.valueOf(com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION)
 
 /**
  * Extension property that wraps the aapt additional parameters, to take into account
@@ -285,7 +292,7 @@ val agpVersion: VersionNumber
 @Suppress("UNCHECKED_CAST")
 val BaseExtension.aaptAdditionalParameters: MutableCollection<String>
     get() {
-        val aaptOptionsGetter = if (agpVersion.major >= 7) "getAndroidResources" else "getAaptOptions"
+        val aaptOptionsGetter = if (agpVersion.majorVersion >= 7) "getAndroidResources" else "getAaptOptions"
         val aaptOptions = this.javaClass.methods.first { it.name == aaptOptionsGetter }.invoke(this)
         val additionalParameters = aaptOptions.javaClass.methods.first { it.name == "getAdditionalParameters" }.invoke(aaptOptions)
         return if (additionalParameters != null) {

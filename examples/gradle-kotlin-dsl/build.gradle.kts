@@ -1,13 +1,11 @@
 buildscript {
     repositories {
+        mavenLocal()
         mavenCentral()
         google()
     }
     dependencies {
-        // TODO: required due to https://github.com/Guardsquare/proguard/issues/30
-        classpath("com.android.tools.build:gradle:3.0.0")
-
-        classpath("com.guardsquare:proguard-gradle:7.0.1")
+        classpath("com.guardsquare:proguard-gradle:7.4.0")
     }
 }
 

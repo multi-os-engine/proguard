@@ -2,7 +2,7 @@
  * ProGuard -- shrinking, optimization, obfuscation, and preverification
  *             of Java bytecode.
  *
- * Copyright (c) 2002-2021 Guardsquare NV
+ * Copyright (c) 2002-2022 Guardsquare NV
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -20,25 +20,156 @@
  */
 package proguard.shrink;
 
-import proguard.classfile.*;
-import proguard.classfile.attribute.*;
-import proguard.classfile.attribute.annotation.*;
+import proguard.classfile.AccessConstants;
+import proguard.classfile.ClassConstants;
+import proguard.classfile.Clazz;
+import proguard.classfile.Field;
+import proguard.classfile.LibraryClass;
+import proguard.classfile.LibraryField;
+import proguard.classfile.LibraryMethod;
+import proguard.classfile.Method;
+import proguard.classfile.ProgramClass;
+import proguard.classfile.ProgramField;
+import proguard.classfile.ProgramMember;
+import proguard.classfile.ProgramMethod;
+import proguard.classfile.attribute.Attribute;
+import proguard.classfile.attribute.BootstrapMethodInfo;
+import proguard.classfile.attribute.BootstrapMethodsAttribute;
+import proguard.classfile.attribute.CodeAttribute;
+import proguard.classfile.attribute.ConstantValueAttribute;
+import proguard.classfile.attribute.DeprecatedAttribute;
+import proguard.classfile.attribute.EnclosingMethodAttribute;
+import proguard.classfile.attribute.ExceptionInfo;
+import proguard.classfile.attribute.ExceptionsAttribute;
+import proguard.classfile.attribute.InnerClassesAttribute;
+import proguard.classfile.attribute.InnerClassesInfo;
+import proguard.classfile.attribute.LineNumberTableAttribute;
+import proguard.classfile.attribute.LocalVariableTableAttribute;
+import proguard.classfile.attribute.LocalVariableTypeTableAttribute;
+import proguard.classfile.attribute.MethodParametersAttribute;
+import proguard.classfile.attribute.NestHostAttribute;
+import proguard.classfile.attribute.NestMembersAttribute;
+import proguard.classfile.attribute.ParameterInfo;
+import proguard.classfile.attribute.PermittedSubclassesAttribute;
+import proguard.classfile.attribute.RecordAttribute;
+import proguard.classfile.attribute.SignatureAttribute;
+import proguard.classfile.attribute.SourceDebugExtensionAttribute;
+import proguard.classfile.attribute.SourceDirAttribute;
+import proguard.classfile.attribute.SourceFileAttribute;
+import proguard.classfile.attribute.SyntheticAttribute;
+import proguard.classfile.attribute.UnknownAttribute;
+import proguard.classfile.attribute.annotation.Annotation;
+import proguard.classfile.attribute.annotation.AnnotationDefaultAttribute;
+import proguard.classfile.attribute.annotation.AnnotationElementValue;
+import proguard.classfile.attribute.annotation.AnnotationsAttribute;
+import proguard.classfile.attribute.annotation.ArrayElementValue;
+import proguard.classfile.attribute.annotation.ClassElementValue;
+import proguard.classfile.attribute.annotation.ConstantElementValue;
+import proguard.classfile.attribute.annotation.EnumConstantElementValue;
+import proguard.classfile.attribute.annotation.ParameterAnnotationsAttribute;
 import proguard.classfile.attribute.annotation.visitor.ElementValueVisitor;
-import proguard.classfile.attribute.module.*;
-import proguard.classfile.attribute.module.visitor.*;
-import proguard.classfile.attribute.preverification.*;
-import proguard.classfile.attribute.preverification.visitor.*;
-import proguard.classfile.attribute.visitor.*;
-import proguard.classfile.constant.*;
-import proguard.classfile.constant.visitor.*;
-import proguard.classfile.instruction.*;
+import proguard.classfile.attribute.module.ExportsInfo;
+import proguard.classfile.attribute.module.ModuleAttribute;
+import proguard.classfile.attribute.module.ModuleMainClassAttribute;
+import proguard.classfile.attribute.module.ModulePackagesAttribute;
+import proguard.classfile.attribute.module.OpensInfo;
+import proguard.classfile.attribute.module.ProvidesInfo;
+import proguard.classfile.attribute.module.RequiresInfo;
+import proguard.classfile.attribute.module.visitor.ExportsInfoVisitor;
+import proguard.classfile.attribute.module.visitor.OpensInfoVisitor;
+import proguard.classfile.attribute.module.visitor.ProvidesInfoVisitor;
+import proguard.classfile.attribute.module.visitor.RequiresInfoVisitor;
+import proguard.classfile.attribute.preverification.FullFrame;
+import proguard.classfile.attribute.preverification.MoreZeroFrame;
+import proguard.classfile.attribute.preverification.ObjectType;
+import proguard.classfile.attribute.preverification.SameOneFrame;
+import proguard.classfile.attribute.preverification.StackMapAttribute;
+import proguard.classfile.attribute.preverification.StackMapFrame;
+import proguard.classfile.attribute.preverification.StackMapTableAttribute;
+import proguard.classfile.attribute.preverification.VerificationType;
+import proguard.classfile.attribute.preverification.visitor.StackMapFrameVisitor;
+import proguard.classfile.attribute.preverification.visitor.VerificationTypeVisitor;
+import proguard.classfile.attribute.visitor.AllAttributeVisitor;
+import proguard.classfile.attribute.visitor.AttributeVisitor;
+import proguard.classfile.attribute.visitor.BootstrapMethodInfoVisitor;
+import proguard.classfile.attribute.visitor.ExceptionInfoVisitor;
+import proguard.classfile.attribute.visitor.InnerClassesInfoVisitor;
+import proguard.classfile.attribute.visitor.ParameterInfoVisitor;
+import proguard.classfile.constant.ClassConstant;
+import proguard.classfile.constant.Constant;
+import proguard.classfile.constant.DoubleConstant;
+import proguard.classfile.constant.DynamicConstant;
+import proguard.classfile.constant.FloatConstant;
+import proguard.classfile.constant.IntegerConstant;
+import proguard.classfile.constant.InvokeDynamicConstant;
+import proguard.classfile.constant.LongConstant;
+import proguard.classfile.constant.MethodHandleConstant;
+import proguard.classfile.constant.MethodTypeConstant;
+import proguard.classfile.constant.ModuleConstant;
+import proguard.classfile.constant.NameAndTypeConstant;
+import proguard.classfile.constant.PackageConstant;
+import proguard.classfile.constant.PrimitiveArrayConstant;
+import proguard.classfile.constant.RefConstant;
+import proguard.classfile.constant.StringConstant;
+import proguard.classfile.constant.Utf8Constant;
+import proguard.classfile.constant.visitor.ConstantTagFilter;
+import proguard.classfile.constant.visitor.ConstantVisitor;
+import proguard.classfile.instruction.ConstantInstruction;
+import proguard.classfile.instruction.Instruction;
 import proguard.classfile.instruction.visitor.InstructionVisitor;
-import proguard.classfile.kotlin.*;
-import proguard.classfile.kotlin.visitor.*;
-import proguard.classfile.util.*;
-import proguard.classfile.visitor.*;
+import proguard.classfile.kotlin.KotlinAnnotatable;
+import proguard.classfile.kotlin.KotlinAnnotation;
+import proguard.classfile.kotlin.KotlinClassKindMetadata;
+import proguard.classfile.kotlin.KotlinConstants;
+import proguard.classfile.kotlin.KotlinConstructorMetadata;
+import proguard.classfile.kotlin.KotlinContractMetadata;
+import proguard.classfile.kotlin.KotlinDeclarationContainerMetadata;
+import proguard.classfile.kotlin.KotlinEffectExpressionMetadata;
+import proguard.classfile.kotlin.KotlinEffectMetadata;
+import proguard.classfile.kotlin.KotlinFileFacadeKindMetadata;
+import proguard.classfile.kotlin.KotlinFunctionMetadata;
+import proguard.classfile.kotlin.KotlinMetadata;
+import proguard.classfile.kotlin.KotlinMultiFileFacadeKindMetadata;
+import proguard.classfile.kotlin.KotlinMultiFilePartKindMetadata;
+import proguard.classfile.kotlin.KotlinPropertyMetadata;
+import proguard.classfile.kotlin.KotlinSyntheticClassKindMetadata;
+import proguard.classfile.kotlin.KotlinTypeAliasMetadata;
+import proguard.classfile.kotlin.KotlinTypeMetadata;
+import proguard.classfile.kotlin.KotlinTypeParameterMetadata;
+import proguard.classfile.kotlin.KotlinValueParameterMetadata;
+import proguard.classfile.kotlin.KotlinVersionRequirementMetadata;
+import proguard.classfile.kotlin.visitor.KotlinAnnotationVisitor;
+import proguard.classfile.kotlin.visitor.KotlinConstructorVisitor;
+import proguard.classfile.kotlin.visitor.KotlinContractVisitor;
+import proguard.classfile.kotlin.visitor.KotlinEffectExprVisitor;
+import proguard.classfile.kotlin.visitor.KotlinEffectVisitor;
+import proguard.classfile.kotlin.visitor.KotlinFunctionVisitor;
+import proguard.classfile.kotlin.visitor.KotlinMetadataVisitor;
+import proguard.classfile.kotlin.visitor.KotlinPropertyVisitor;
+import proguard.classfile.kotlin.visitor.KotlinTypeAliasVisitor;
+import proguard.classfile.kotlin.visitor.KotlinTypeParameterVisitor;
+import proguard.classfile.kotlin.visitor.KotlinTypeVisitor;
+import proguard.classfile.kotlin.visitor.KotlinValueParameterVisitor;
+import proguard.classfile.kotlin.visitor.KotlinVersionRequirementVisitor;
+import proguard.classfile.kotlin.visitor.MemberToKotlinPropertyVisitor;
+import proguard.classfile.kotlin.visitor.MethodToKotlinConstructorVisitor;
+import proguard.classfile.kotlin.visitor.MethodToKotlinFunctionVisitor;
+import proguard.classfile.kotlin.visitor.ReferencedKotlinMetadataVisitor;
+import proguard.classfile.util.ClassUtil;
+import proguard.classfile.visitor.ClassAccessFilter;
+import proguard.classfile.visitor.ClassHierarchyTraveler;
+import proguard.classfile.visitor.ClassVisitor;
+import proguard.classfile.visitor.ConcreteClassDownTraveler;
+import proguard.classfile.visitor.MemberAccessFilter;
+import proguard.classfile.visitor.MemberToClassVisitor;
+import proguard.classfile.visitor.MemberVisitor;
+import proguard.classfile.visitor.MultiMemberVisitor;
+import proguard.classfile.visitor.NamedMethodVisitor;
+import proguard.classfile.visitor.ProgramClassFilter;
+import proguard.classfile.visitor.ReferencedClassVisitor;
 import proguard.fixer.kotlin.KotlinAnnotationCounter;
-import proguard.util.*;
+import proguard.util.Processable;
+import proguard.util.ProcessingFlags;
 
 import java.util.List;
 
@@ -76,6 +207,7 @@ implements   ClassVisitor,
     // if its Clazz can be determined as being used as well.
     private final Object POSSIBLY_USED = new Object();
 
+    private final MarkingMode       markingMode;
     private final SimpleUsageMarker usageMarker;
     private final KotlinUsageMarker kotlinUsageMarker = new KotlinUsageMarker();
 
@@ -93,13 +225,18 @@ implements   ClassVisitor,
     private MemberVisitor   extraMethodVisitor;
 
 
+    public enum MarkingMode {
+        SHRINKING,
+        MAIN_DEX_TRACING
+    }
+
     /**
      * Creates a new UsageMarker. It only marks interfaces if they are
      * really used in the code.
      */
     public ClassUsageMarker()
     {
-        this(new SimpleUsageMarker());
+        this(new SimpleUsageMarker(), MarkingMode.SHRINKING);
     }
 
     /**
@@ -108,7 +245,19 @@ implements   ClassVisitor,
      */
     public ClassUsageMarker(SimpleUsageMarker usageMarker)
     {
+        this(usageMarker, MarkingMode.SHRINKING);
+    }
+
+
+    /**
+     * Creates a new UsageMarker.
+     * @param markingMode specifies which type of marking is done
+     */
+    public ClassUsageMarker(SimpleUsageMarker usageMarker,
+                            MarkingMode       markingMode)
+    {
         this.usageMarker = usageMarker;
+        this.markingMode = markingMode;
     }
 
 
@@ -237,8 +386,12 @@ implements   ClassVisitor,
                 }
             }
 
-            // Mark all methods.
-            libraryClass.methodsAccept(this);
+            // Mark all methods. When tracing the main dex we expect that if the methods are used,
+            // their classes should be loaded anyway, so we don't need to analyse the contents of overrides.
+            if (markingMode != MarkingMode.MAIN_DEX_TRACING)
+            {
+                libraryClass.methodsAccept(this);
+            }
         }
     }
 
@@ -322,6 +475,7 @@ implements   ClassVisitor,
     {
         // Implementations for MemberVisitor.
 
+        @Override
         public void visitProgramMethod(ProgramClass programClass, ProgramMethod programMethod)
         {
             if (shouldBeMarkedAsUsed(programMethod))
@@ -347,6 +501,7 @@ implements   ClassVisitor,
     {
         // Implementations for MemberVisitor.
 
+        @Override
         public void visitProgramField(ProgramClass programClass, ProgramField programField)
         {
             // Has the method already been referenced?
@@ -367,6 +522,7 @@ implements   ClassVisitor,
         }
 
 
+        @Override
         public void visitProgramMethod(ProgramClass programClass, ProgramMethod programMethod)
         {
             // Has the method already been referenced?
@@ -392,9 +548,11 @@ implements   ClassVisitor,
     {
         // Implementations for AttributeVisitor.
 
+        @Override
         public void visitAnyAttribute(Clazz clazz, Attribute attribute) {}
 
 
+        @Override
         public void visitCodeAttribute(Clazz clazz, Method method, CodeAttribute codeAttribute)
         {
             if (codeAttribute.u4codeLength > 1)
@@ -407,6 +565,7 @@ implements   ClassVisitor,
 
     // Implementations for MemberVisitor.
 
+    @Override
     public void visitProgramField(ProgramClass programClass, ProgramField programField)
     {
         if (shouldBeMarkedAsUsed(programField))
@@ -431,6 +590,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitProgramMethod(ProgramClass programClass, ProgramMethod programMethod)
     {
         if (shouldBeMarkedAsUsed(programMethod))
@@ -461,9 +621,11 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitLibraryField(LibraryClass programClass, LibraryField programField) {}
 
 
+    @Override
     public void visitLibraryMethod(LibraryClass libraryClass, LibraryMethod libraryMethod)
     {
         if (shouldBeMarkedAsUsed(libraryMethod))
@@ -534,7 +696,6 @@ implements   ClassVisitor,
         }
     }
 
-
     /**
      * Marks the hierarchy of implementing or overriding methods corresponding
      * to the given method, if any.
@@ -583,6 +744,7 @@ implements   ClassVisitor,
 
     // Implementations for ConstantVisitor.
 
+    @Override
     public void visitIntegerConstant(Clazz clazz, IntegerConstant integerConstant)
     {
         if (shouldBeMarkedAsUsed(integerConstant))
@@ -598,6 +760,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitLongConstant(Clazz clazz, LongConstant longConstant)
     {
         if (shouldBeMarkedAsUsed(longConstant))
@@ -607,6 +770,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitFloatConstant(Clazz clazz, FloatConstant floatConstant)
     {
         if (shouldBeMarkedAsUsed(floatConstant))
@@ -616,6 +780,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitDoubleConstant(Clazz clazz, DoubleConstant doubleConstant)
     {
         if (shouldBeMarkedAsUsed(doubleConstant))
@@ -625,6 +790,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitPrimitiveArrayConstant(Clazz clazz, PrimitiveArrayConstant primitiveArrayConstant)
     {
         if (shouldBeMarkedAsUsed(primitiveArrayConstant))
@@ -640,6 +806,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitStringConstant(Clazz clazz, StringConstant stringConstant)
     {
         if (shouldBeMarkedAsUsed(stringConstant))
@@ -661,6 +828,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitUtf8Constant(Clazz clazz, Utf8Constant utf8Constant)
     {
         if (shouldBeMarkedAsUsed(utf8Constant))
@@ -670,6 +838,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitDynamicConstant(Clazz clazz, DynamicConstant dynamicConstant)
     {
         if (shouldBeMarkedAsUsed(dynamicConstant))
@@ -687,6 +856,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitInvokeDynamicConstant(Clazz clazz, InvokeDynamicConstant invokeDynamicConstant)
     {
         if (shouldBeMarkedAsUsed(invokeDynamicConstant))
@@ -704,6 +874,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitMethodHandleConstant(Clazz clazz, MethodHandleConstant methodHandleConstant)
     {
         if (shouldBeMarkedAsUsed(methodHandleConstant))
@@ -715,6 +886,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitAnyRefConstant(Clazz clazz, RefConstant refConstant)
     {
         if (shouldBeMarkedAsUsed(refConstant))
@@ -736,6 +908,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitClassConstant(Clazz clazz, ClassConstant classConstant)
     {
         if (shouldBeMarkedAsUsed(classConstant))
@@ -750,6 +923,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitMethodTypeConstant(Clazz clazz, MethodTypeConstant methodTypeConstant)
     {
         if (shouldBeMarkedAsUsed(methodTypeConstant))
@@ -764,6 +938,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitNameAndTypeConstant(Clazz clazz, NameAndTypeConstant nameAndTypeConstant)
     {
         if (shouldBeMarkedAsUsed(nameAndTypeConstant))
@@ -776,6 +951,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitModuleConstant(Clazz clazz, ModuleConstant moduleConstant)
     {
         if (shouldBeMarkedAsUsed(moduleConstant))
@@ -787,6 +963,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitPackageConstant(Clazz clazz, PackageConstant packageConstant)
     {
         if (shouldBeMarkedAsUsed(packageConstant))
@@ -817,9 +994,11 @@ implements   ClassVisitor,
 
         // Implementations for AttributeVisitor.
 
+        @Override
         public void visitAnyAttribute(Clazz clazz, Attribute attribute) {}
 
 
+        @Override
         public void visitBootstrapMethodsAttribute(Clazz clazz, BootstrapMethodsAttribute bootstrapMethodsAttribute)
         {
             if (shouldBeMarkedAsUsed(bootstrapMethodsAttribute))
@@ -837,6 +1016,7 @@ implements   ClassVisitor,
 
         // Implementations for BootstrapMethodInfoVisitor.
 
+        @Override
         public void visitBootstrapMethodInfo(Clazz clazz, BootstrapMethodInfo bootstrapMethodInfo)
         {
             markAsUsed(bootstrapMethodInfo);
@@ -853,6 +1033,7 @@ implements   ClassVisitor,
     // Note that attributes are typically only referenced once, so we don't
     // test if they have been marked already.
 
+    @Override
     public void visitUnknownAttribute(Clazz clazz, UnknownAttribute unknownAttribute)
     {
         // This is the best we can do for unknown attributes.
@@ -862,31 +1043,7 @@ implements   ClassVisitor,
     }
 
 
-    public void visitBootstrapMethodsAttribute(Clazz clazz, BootstrapMethodsAttribute bootstrapMethodsAttribute)
-    {
-        // Don't mark the attribute and its name here. We may mark it in
-        // MyBootStrapMethodsAttributeUsageMarker.
-    }
-
-
-    public void visitSourceFileAttribute(Clazz clazz, SourceFileAttribute sourceFileAttribute)
-    {
-        markAsUsed(sourceFileAttribute);
-
-        markConstant(clazz, sourceFileAttribute.u2attributeNameIndex);
-        markConstant(clazz, sourceFileAttribute.u2sourceFileIndex);
-    }
-
-
-    public void visitSourceDirAttribute(Clazz clazz, SourceDirAttribute sourceDirAttribute)
-    {
-        markAsUsed(sourceDirAttribute);
-
-        markConstant(clazz, sourceDirAttribute.u2attributeNameIndex);
-        markConstant(clazz, sourceDirAttribute.u2sourceDirIndex);
-    }
-
-
+    @Override
     public void visitSourceDebugExtensionAttribute(Clazz clazz, SourceDebugExtensionAttribute sourceDebugExtensionAttribute)
     {
         markAsUsed(sourceDebugExtensionAttribute);
@@ -895,6 +1052,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitRecordAttribute(Clazz clazz, RecordAttribute recordAttribute)
     {
         markAsUsed(recordAttribute);
@@ -907,6 +1065,35 @@ implements   ClassVisitor,
     }
 
 
+    @Override
+    public void visitBootstrapMethodsAttribute(Clazz clazz, BootstrapMethodsAttribute bootstrapMethodsAttribute)
+    {
+        // Don't mark the attribute and its name here. We may mark it in
+        // MyBootStrapMethodsAttributeUsageMarker.
+    }
+
+
+    @Override
+    public void visitSourceFileAttribute(Clazz clazz, SourceFileAttribute sourceFileAttribute)
+    {
+        markAsUsed(sourceFileAttribute);
+
+        markConstant(clazz, sourceFileAttribute.u2attributeNameIndex);
+        markConstant(clazz, sourceFileAttribute.u2sourceFileIndex);
+    }
+
+
+    @Override
+    public void visitSourceDirAttribute(Clazz clazz, SourceDirAttribute sourceDirAttribute)
+    {
+        markAsUsed(sourceDirAttribute);
+
+        markConstant(clazz, sourceDirAttribute.u2attributeNameIndex);
+        markConstant(clazz, sourceDirAttribute.u2sourceDirIndex);
+    }
+
+
+    @Override
     public void visitInnerClassesAttribute(Clazz clazz, InnerClassesAttribute innerClassesAttribute)
     {
         // Don't mark the attribute and its name yet. We may mark it later, in
@@ -920,6 +1107,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitEnclosingMethodAttribute(Clazz clazz, EnclosingMethodAttribute enclosingMethodAttribute)
     {
         markAsUsed(enclosingMethodAttribute);
@@ -930,6 +1118,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitNestHostAttribute(Clazz clazz, NestHostAttribute nestHostAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark it later,
@@ -941,6 +1130,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitNestMembersAttribute(Clazz clazz, NestMembersAttribute nestMembersAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark it later,
@@ -954,6 +1144,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitPermittedSubclassesAttribute(Clazz clazz, PermittedSubclassesAttribute permittedSubclassesAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark it later,
@@ -967,6 +1158,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitModuleAttribute(Clazz clazz, ModuleAttribute moduleAttribute)
     {
         markAsUsed(moduleAttribute);
@@ -987,6 +1179,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitModuleMainClassAttribute(Clazz clazz, ModuleMainClassAttribute moduleMainClassAttribute)
     {
         markAsUsed(moduleMainClassAttribute);
@@ -996,6 +1189,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitModulePackagesAttribute(Clazz clazz, ModulePackagesAttribute modulePackagesAttribute)
     {
         markAsUsed(modulePackagesAttribute);
@@ -1007,6 +1201,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitDeprecatedAttribute(Clazz clazz, DeprecatedAttribute deprecatedAttribute)
     {
         markAsUsed(deprecatedAttribute);
@@ -1015,6 +1210,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitSyntheticAttribute(Clazz clazz, SyntheticAttribute syntheticAttribute)
     {
         markAsUsed(syntheticAttribute);
@@ -1023,6 +1219,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitSignatureAttribute(Clazz clazz, SignatureAttribute signatureAttribute)
     {
         markAsUsed(signatureAttribute);
@@ -1037,6 +1234,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitConstantValueAttribute(Clazz clazz, Field field, ConstantValueAttribute constantValueAttribute)
     {
         markAsUsed(constantValueAttribute);
@@ -1046,6 +1244,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitMethodParametersAttribute(Clazz clazz, Method method, MethodParametersAttribute methodParametersAttribute)
     {
         markAsUsed(methodParametersAttribute);
@@ -1057,6 +1256,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitExceptionsAttribute(Clazz clazz, Method method, ExceptionsAttribute exceptionsAttribute)
     {
         markAsUsed(exceptionsAttribute);
@@ -1068,6 +1268,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitCodeAttribute(Clazz clazz, Method method, CodeAttribute codeAttribute)
     {
         markAsUsed(codeAttribute);
@@ -1082,6 +1283,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitStackMapAttribute(Clazz clazz, Method method, CodeAttribute codeAttribute, StackMapAttribute stackMapAttribute)
     {
         markAsUsed(stackMapAttribute);
@@ -1093,6 +1295,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitStackMapTableAttribute(Clazz clazz, Method method, CodeAttribute codeAttribute, StackMapTableAttribute stackMapTableAttribute)
     {
         markAsUsed(stackMapTableAttribute);
@@ -1104,6 +1307,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitLineNumberTableAttribute(Clazz clazz, Method method, CodeAttribute codeAttribute, LineNumberTableAttribute lineNumberTableAttribute)
     {
         markAsUsed(lineNumberTableAttribute);
@@ -1112,6 +1316,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitLocalVariableTableAttribute(Clazz clazz, Method method, CodeAttribute codeAttribute, LocalVariableTableAttribute localVariableTableAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark them later,
@@ -1125,6 +1330,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitLocalVariableTypeTableAttribute(Clazz clazz, Method method, CodeAttribute codeAttribute, LocalVariableTypeTableAttribute localVariableTypeTableAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark them later,
@@ -1138,6 +1344,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitAnyAnnotationsAttribute(Clazz clazz, AnnotationsAttribute annotationsAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark them later,
@@ -1151,6 +1358,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitAnyParameterAnnotationsAttribute(Clazz clazz, Method method, ParameterAnnotationsAttribute parameterAnnotationsAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark them later,
@@ -1164,6 +1372,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitAnnotationDefaultAttribute(Clazz clazz, Method method, AnnotationDefaultAttribute annotationDefaultAttribute)
     {
         // Don't mark the attribute and its contents yet. We may mark them later,
@@ -1179,6 +1388,7 @@ implements   ClassVisitor,
 
     // Implementations for ExceptionInfoVisitor.
 
+    @Override
     public void visitExceptionInfo(Clazz clazz, Method method, CodeAttribute codeAttribute, ExceptionInfo exceptionInfo)
     {
         markAsUsed(exceptionInfo);
@@ -1189,6 +1399,7 @@ implements   ClassVisitor,
 
     // Implementations for InnerClassesInfoVisitor.
 
+    @Override
     public void visitInnerClassesInfo(Clazz clazz, InnerClassesInfo innerClassesInfo)
     {
         // At this point, we only mark outer classes of this class.
@@ -1208,9 +1419,11 @@ implements   ClassVisitor,
 
     // Implementations for StackMapFrameVisitor.
 
+    @Override
     public void visitAnyStackMapFrame(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, StackMapFrame stackMapFrame) {}
 
 
+    @Override
     public void visitSameOneFrame(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, SameOneFrame sameOneFrame)
     {
         // Mark the constant pool entries referenced by the verification types.
@@ -1218,6 +1431,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitMoreZeroFrame(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, MoreZeroFrame moreZeroFrame)
     {
         // Mark the constant pool entries referenced by the verification types.
@@ -1225,6 +1439,7 @@ implements   ClassVisitor,
     }
 
 
+    @Override
     public void visitFullFrame(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, FullFrame fullFrame)
     {
         // Mark the constant pool entries referenced by the verification types.
@@ -1235,9 +1450,11 @@ implements   ClassVisitor,
 
     // Implementations for VerificationTypeVisitor.
 
+    @Override
     public void visitAnyVerificationType(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, VerificationType verificationType) {}
 
 
+    @Override
     public void visitObjectType(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, ObjectType objectType)
     {
         markConstant(clazz, objectType.u2classIndex);
@@ -1246,6 +1463,7 @@ implements   ClassVisitor,
 
     // Implementations for ParameterInfoVisitor.
 
+    @Override
     public void visitParameterInfo(Clazz clazz, Method method, int parameterIndex, ParameterInfo parameterInfo)
     {
         parameterInfo.nameConstantAccept(clazz, this);
@@ -1254,6 +1472,7 @@ implements   ClassVisitor,
 
     // Implementations for RequiresInfoVisitor.
 
+    @Override
     public void visitRequiresInfo(Clazz clazz, RequiresInfo requiresInfo)
     {
         markConstant(        clazz, requiresInfo.u2requiresIndex);
@@ -1263,6 +1482,7 @@ implements   ClassVisitor,
 
     // Implementations for ExportsInfoVisitor.
 
+    @Override
     public void visitExportsInfo(Clazz clazz, ExportsInfo exportsInfo)
     {
         markConstant( clazz,  exportsInfo.u2exportsIndex);
@@ -1272,6 +1492,7 @@ implements   ClassVisitor,
 
     // Implementations for OpensInfoVisitor.
 
+    @Override
     public void visitOpensInfo(Clazz clazz, OpensInfo opensInfo)
     {
         markConstant( clazz, opensInfo.u2opensIndex);
@@ -1281,6 +1502,7 @@ implements   ClassVisitor,
 
     // Implementations for ProvidesInfoVisitor.
 
+    @Override
     public void visitProvidesInfo(Clazz clazz, ProvidesInfo providesInfo)
     {
         markConstant( clazz, providesInfo.u2providesIndex);
@@ -1366,9 +1588,11 @@ implements   ClassVisitor,
 
     // Implementations for InstructionVisitor.
 
+    @Override
     public void visitAnyInstruction(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, Instruction instruction) {}
 
 
+    @Override
     public void visitConstantInstruction(Clazz clazz, Method method, CodeAttribute codeAttribute, int offset, ConstantInstruction constantInstruction)
     {
         markConstant(clazz, constantInstruction.constantIndex);
@@ -1597,8 +1821,9 @@ implements   ClassVisitor,
 
                 kotlinClassKindMetadata.superTypesAccept(                       clazz, this);
                 kotlinClassKindMetadata.typeParametersAccept(                   clazz, this);
-                kotlinClassKindMetadata.versionRequirementAccept(               clazz, this);
                 kotlinClassKindMetadata.inlineClassUnderlyingPropertyTypeAccept(clazz, this);
+                kotlinClassKindMetadata.contextReceiverTypesAccept(             clazz, this);
+                kotlinClassKindMetadata.versionRequirementAccept(               clazz, this);
             }
         }
 
@@ -1689,11 +1914,12 @@ implements   ClassVisitor,
                     }
                 }
 
-                kotlinPropertyMetadata.receiverTypeAccept(      clazz, kotlinDeclarationContainerMetadata, this);
-                kotlinPropertyMetadata.typeParametersAccept(    clazz, kotlinDeclarationContainerMetadata, this);
-                kotlinPropertyMetadata.setterParametersAccept(  clazz, kotlinDeclarationContainerMetadata, this);
-                kotlinPropertyMetadata.typeAccept(              clazz, kotlinDeclarationContainerMetadata, this);
-                kotlinPropertyMetadata.versionRequirementAccept(clazz, kotlinDeclarationContainerMetadata, this);
+                kotlinPropertyMetadata.receiverTypeAccept(        clazz, kotlinDeclarationContainerMetadata, this);
+                kotlinPropertyMetadata.contextReceiverTypesAccept(clazz, kotlinDeclarationContainerMetadata, this);
+                kotlinPropertyMetadata.typeParametersAccept(      clazz, kotlinDeclarationContainerMetadata, this);
+                kotlinPropertyMetadata.setterParametersAccept(    clazz, kotlinDeclarationContainerMetadata, this);
+                kotlinPropertyMetadata.typeAccept(                clazz, kotlinDeclarationContainerMetadata, this);
+                kotlinPropertyMetadata.versionRequirementAccept(  clazz, kotlinDeclarationContainerMetadata, this);
             }
         }
 
@@ -1732,12 +1958,13 @@ implements   ClassVisitor,
                                 ClassUsageMarker.this);
                 }
 
-                kotlinFunctionMetadata.receiverTypeAccept(      clazz, kotlinMetadata, this);
-                kotlinFunctionMetadata.typeParametersAccept(    clazz, kotlinMetadata, this);
-                kotlinFunctionMetadata.valueParametersAccept(   clazz, kotlinMetadata, this);
-                kotlinFunctionMetadata.returnTypeAccept(        clazz, kotlinMetadata, this);
-                kotlinFunctionMetadata.contractsAccept(         clazz, kotlinMetadata, this);
-                kotlinFunctionMetadata.versionRequirementAccept(clazz, kotlinMetadata, this);
+                kotlinFunctionMetadata.receiverTypeAccept(        clazz, kotlinMetadata, this);
+                kotlinFunctionMetadata.contextReceiverTypesAccept(clazz, kotlinMetadata, this);
+                kotlinFunctionMetadata.typeParametersAccept(      clazz, kotlinMetadata, this);
+                kotlinFunctionMetadata.valueParametersAccept(     clazz, kotlinMetadata, this);
+                kotlinFunctionMetadata.returnTypeAccept(          clazz, kotlinMetadata, this);
+                kotlinFunctionMetadata.contractsAccept(           clazz, kotlinMetadata, this);
+                kotlinFunctionMetadata.versionRequirementAccept(  clazz, kotlinMetadata, this);
             }
         }
 
@@ -1757,11 +1984,12 @@ implements   ClassVisitor,
                     !kotlinFunctionMetadata.flags.modality.isAbstract &&
                     (kotlinFunctionMetadata.referencedMethod.getProcessingFlags() & ProcessingFlags.DONT_SHRINK) != 0)
                 {
-                    kotlinFunctionMetadata.referencedDefaultImplementationMethodClass
-                        .accept(ClassUsageMarker.this);
-                    kotlinFunctionMetadata.referencedDefaultImplementationMethod
-                        .accept(kotlinFunctionMetadata.referencedDefaultImplementationMethodClass,
-                                ClassUsageMarker.this);
+                    kotlinFunctionMetadata.referencedDefaultImplementationMethodAccept(
+                        new MultiMemberVisitor(
+                            ClassUsageMarker.this,
+                            new MemberToClassVisitor(ClassUsageMarker.this)
+                        )
+                    );
                 }
             }
         }
@@ -1953,7 +2181,9 @@ implements   ClassVisitor,
         // Implementations for KotlinAnnotationVisitor.
 
         @Override
-        public void visitAnyAnnotation(Clazz clazz, KotlinAnnotatable annotatable, KotlinAnnotation  annotation)
+        public void visitAnyAnnotation(Clazz             clazz,
+                                       KotlinAnnotatable annotatable,
+                                       KotlinAnnotation  annotation)
         {
             if (!isUsed(annotation))
             {

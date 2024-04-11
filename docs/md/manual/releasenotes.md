@@ -1,9 +1,161 @@
+## Version 7.4.2
+
+### Bugfixes
+
+- Fix potential access issues when backporting.
+- Fix potential NoClassDefFoundError when using type specialization optimization. (#373)
+- Improve processing of Kotlin metadata flags to prevent unnecessary null checks for consumers of protected library artifacts.
+- Prevent potential `StackGeneralizationException` during optimization when processing methods with many arguments.
+
+### Added
+
+- `ProGuardTask` support for Gradle configuration cache. (#254)
+
+## Version 7.4.1
+
+### Bugfixes
+
+- Fix inadvertent closing of System.out when printing configuration. (#365)
+
+### Added
+
+- Support for parsing of `<clinit>` methods without specifying the return type in class specifications.
+
+## Version 7.4
+
+### Java support
+
+- Add support for Java 21. (#331)
+
+### Kotlin support
+
+- Add support for Kotlin 1.9.
+
+### Bugfixes
+
+- Fix "NoClassDefFoundError: Failed resolution of: Lorg/apache/logging/log4j/LogManager" when using GSON optimization or `-addconfigurationdebugging`. (#326)
+- Don't drop Record attribute for records with no components. (proguard-core#118)
+- Fix potential duplication class when name obfuscating Kotlin multi-file facades.
+- Do not inline interface methods during optimization to avoid compilation errors during output writing due to an interface method being made package visible.
+
+### Added
+
+- Support parsing of wildcard `*` when used as a field type or method return type in class specifications.
+
+## Version 7.3.2
+
+### Java support
+
+- Add support for Java 20. (#294)
+
+### Improved
+
+- Merge classes only when `-optimizeaggressively` is set.
+
+### Bugfixes
+
+- Fix potential `ArrayIndexOutOfBoundsException` when processing Kotlin metadata. (#297)
+
+## Version 7.3.1
+
+### Kotlin support
+
+- Add support for Kotlin 1.8.
+
+### Improved
+
+- Conservative optimization is now the default. Previously, it could be enabled by setting the `optimize.conservatively` system property. This has been replaced with the `-optimizeaggressively` option, which sets optimization to aggressive.
+- Improve optimization performance in edge cases with generated code. (#283)
+
+### Bugfixes
+
+- Fix `-keepparameternames` to keep Kotlin function, constructor and property setter parameter names.
+- Fix `-keepparameternames` to keep Kotlin annotation constructor parameter names.
+- Fix `-keepparameternames` to keep Kotlin interface parameter names.
+- Fix potential `NullPointerException` while processing enum classes with invalid Kotlin metadata.
+- Fix potential `Instruction has invalid constant index size` error during GSON optimization.
+- Fix member specialization & generalization optimizations.
+- Fix potential "Сan't find referenced class ClassName$DefaultImpls" warnings. (#290)
+
+## Version 7.3.0
+
+### Java support
+
+To allow ProGuard to continue to optimize, obfuscate and shrink Java class files ProGuard now supports all Java versions including Java 19.
+
+- Add support for Java 19. (`PGD-247`)
+
+### Kotlin support
+
+ProGuard 7.3 deprecates the `-keepkotlinmetadata` option. You can use `-keep class kotlin.Metadata` instead
+which automatically enables processing of Kotlin metadata. Some consumer rules, from libraries 
+such as `kotlin-reflect`, already contain this rule.
+
+- Add support for Kotlin 1.7.
+- Improve support for Kotlin library projects. (`T3752`)
+- Automatically process Kotlin Metadata when keeping the `kotlin.Metadata` annotation. (`T3116`)
+
+### Improved
+
+- Improve app startup times when using `-addconfigurationdebugging`. (`T17153`)
+- Automatically process Kotlin Metadata when keeping the `kotlin.Metadata` annotation. (`T3116`)
+
+### Bug fixes
+
+- Prevent merging classes with native methods that would result in UnsatisfiedLinkError.
+- Fix optimization of simple enums (optimization `class/unboxing/enums`).
+- Prevent potential build time `NullPointerException` when processing Kotlin interface methods.
+- Fix ProGuard Gradle Plugin not working correctly on Windows. (`PGD-272`)
+
+## Version 7.2.2
+
+### Bug fixes
+
+- Fix "Can't save configuration file" error in ProGuardGUI. (`PGD-220`)
+- Fix rule configurations that extend annotation classes. (`PGD-229`)
+- Fix "No matching variant" Gradle plugin error when using Gradle 7.4 and Java 8. (`PGD-2311`)
+- Fix potential Kotlin metadata initialization issue when using the `-Xno-optimized-callable-references` compiler option. (`T16486`)
+- Fix missing warnings in ProGuardGUI. (`PGD-239`)
+
+### Improved
+
+- Remove Kotlin Intrinsics strings by default, without requiring the `-keepkotlinmetadata` option. (`T16518`)
+
+## Version 7.2.1
+
+### Improved
+
+- Remove `throwUninitializedProperty` parameter strings when using `-keepkotlinmetadata`. (`T4696`)
+
+### Bug fixes
+
+- Fix possible `NullPointerException` in the `ConigurationLogger` when printing rules about constructors.
+
+## Version 7.2.1
+
+
+### Java Support
+
+- Update maximum supported Java class version to 62.65535 (Java 18 ea). (T13973)
+- Deprecate `-target` for classes compiled with Java > 11. (`T13968`)
+
+
+### Improved
+
+- Add [`consumerRuleFilter`](setup/gradleplugin.md#consumerrulefilter) to the ProGuard Gradle plugin. (`T4134`)
+
+### Bug fixes
+
+- Prevent the generation of Windows reserved names. (`T3937`)
+- Prevent "Expecting type and name" parse error when using the `androidx.window` library in an Android project. (`T13715`)
+- Fix shrinking of annotations during GSON optimization.
+
 ## Version 7.2
 
 
 ### Java Support
 
-New Java versions are released every 6 months. 
+New Java versions are released every 6 months.
 To allow ProGuard to continue to optimize, obfuscate and shrink Java class files ProGuard now supports all Java versions including Java 17.
 
 - Add support for Java 17. (`PGD-132`)

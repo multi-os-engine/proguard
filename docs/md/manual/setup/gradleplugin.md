@@ -4,7 +4,7 @@ This page will guide you through to the basic steps of processing your Android a
 !!! tip "Java / Kotlin desktop or server projects"
     If you have a Java / Kotlin desktop or server project, you can find instructions [here](gradle.md).
 
-## ProGuard Gradle Plugin (AGP version 4+)
+## ProGuard Gradle Plugin (AGP version 4.x - AGP 7.x)
 
 You can add the ProGuard plugin to your project by
 including the following in your root level `build.gradle(.kts)` file:
@@ -137,6 +137,42 @@ There are three default configurations available:
 | `proguard-android.txt`          | ProGuard will obfuscate and shrink your application |
 | `proguard-android-optimize.txt` | ProGuard will obfuscate, shrink and optimize your application |
 | `proguard-android-debug.txt`    | ProGuard will process the application without any obfuscation,<br>optimization or shrinking |
+
+### Consumer rules
+
+ProGuard will apply the consumer rules provided by library dependencies. If you need to exclude these rules,
+you can use the `consumerRuleFilter`.
+
+#### consumerRuleFilter
+
+The `consumerRuleFilter` option allows you to specify a list of maven group and
+module name pairs to filter out the ProGuard consumer rules of the dependencies
+that match the specified group and module pairs.
+
+A group and module name pair is very similar to the maven coordinates you write
+when specifying the dependencies in the `dependencies` block, but without the
+version part.
+
+=== "Groovy"
+    ```Groovy
+    proguard {
+        configurations {
+            release {
+                consumerRuleFilter 'groupName:moduleName', 'anotherGroupName:anotherModuleName'
+            }
+        }
+    }
+    ```
+=== "Kotlin"
+    ```Kotlin
+    proguard {
+        configurations {
+            register("release") {
+                consumerRuleFilter("groupName:moduleName", "anotherGroupName:anotherModuleName")
+            }
+        }
+    }
+    ```
 
 ### Example
 

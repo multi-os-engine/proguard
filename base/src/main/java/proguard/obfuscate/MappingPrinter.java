@@ -20,14 +20,28 @@
  */
 package proguard.obfuscate;
 
-import proguard.classfile.*;
-import proguard.classfile.attribute.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.json.JSONException;
+import org.json.JSONObject;
+import proguard.classfile.Clazz;
+import proguard.classfile.JavaTypeConstants;
+import proguard.classfile.Method;
+import proguard.classfile.ProgramClass;
+import proguard.classfile.ProgramField;
+import proguard.classfile.ProgramMethod;
+import proguard.classfile.attribute.Attribute;
+import proguard.classfile.attribute.CodeAttribute;
+import proguard.classfile.attribute.LineNumberInfo;
+import proguard.classfile.attribute.LineNumberTableAttribute;
+import proguard.classfile.attribute.SourceFileAttribute;
 import proguard.classfile.attribute.visitor.AttributeVisitor;
-import proguard.classfile.util.*;
-import proguard.classfile.visitor.*;
+import proguard.classfile.util.ClassUtil;
+import proguard.classfile.visitor.ClassVisitor;
+import proguard.classfile.visitor.MemberVisitor;
 import proguard.optimize.peephole.LineNumberLinearizer;
 
-import java.io.*;
+import java.io.PrintWriter;
 import java.util.Stack;
 
 
@@ -48,6 +62,8 @@ implements   ClassVisitor,
 
     // A field serving as a return value for the visitor methods.
     private boolean printed;
+
+    private static final Logger logger = LogManager.getLogger(MappingPrinter.class);
 
 
     /**
@@ -77,6 +93,9 @@ implements   ClassVisitor,
                    " -> " +
                    ClassUtil.externalClassName(newName) +
                    ":");
+
+        SourceFileNamePrinter sourceFileNamePrinter = new SourceFileNamePrinter(pw);
+        programClass.attributesAccept(sourceFileNamePrinter);
 
         // Print out the class members.
         programClass.fieldsAccept(this);
@@ -187,7 +206,7 @@ implements   ClassVisitor,
 
         // Print out the line numbers of any inlined methods and their
         // enclosing methods.
-        Stack enclosingLineNumbers = new Stack();
+        Stack<LineNumberInfo> enclosingLineNumbers = new Stack<>();
 
         LineNumberInfo previousInfo = new LineNumberInfo(0, 0);
 
@@ -200,7 +219,7 @@ implements   ClassVisitor,
             String previousSource = previousInfo.getSource();
             String source         = info.getSource();
             // Source can be null for injected code.
-            if (source != null && source != previousSource)
+            if (source != null && !source.equals(previousSource))
             {
                 // Are we entering or exiting the block?
                 int previousLineNumber = previousInfo.u2lineNumber;
@@ -254,12 +273,12 @@ implements   ClassVisitor,
      * Prints out the mapping of the specified inlined methods and its
      * enclosing methods.
      */
-    private void printInlinedMethodMapping(String         className,
-                                           String         methodName,
-                                           String         methodDescriptor,
-                                           LineNumberInfo inlinedInfo,
-                                           Stack          enclosingLineNumbers,
-                                           String         obfuscatedMethodName)
+    private void printInlinedMethodMapping(String                className,
+                                           String                methodName,
+                                           String                methodDescriptor,
+                                           LineNumberInfo        inlinedInfo,
+                                           Stack<LineNumberInfo> enclosingLineNumbers,
+                                           String                obfuscatedMethodName)
     {
         String source = inlinedInfo.getSource();
 
@@ -298,8 +317,7 @@ implements   ClassVisitor,
         // methods.
         for (int enclosingIndex = enclosingLineNumbers.size()-1; enclosingIndex >= 0; enclosingIndex--)
         {
-            LineNumberInfo enclosingInfo =
-                (LineNumberInfo)enclosingLineNumbers.get(enclosingIndex);
+            LineNumberInfo enclosingInfo = enclosingLineNumbers.get(enclosingIndex);
 
             printEnclosingMethodMapping(className,
                                         methodName,
@@ -365,5 +383,38 @@ implements   ClassVisitor,
                    ClassUtil.externalMethodArguments(enclosingMethodDescriptor)  + JavaTypeConstants.METHOD_ARGUMENTS_CLOSE + ":" +
                    enclosingLineNumber                                           + " -> " +
                    obfuscatedMethodName);
+    }
+
+    private static class SourceFileNamePrinter implements AttributeVisitor
+    {
+        private final PrintWriter pw;
+
+        public SourceFileNamePrinter(PrintWriter pw)
+        {
+            this.pw = pw;
+        }
+
+        @Override
+        public void visitSourceFileAttribute(Clazz clazz, SourceFileAttribute sourceFileAttribute)
+        {
+            String sourceFileName = clazz.getString(sourceFileAttribute.u2sourceFileIndex);
+            JSONObject json = new JSONObject();
+            try
+            {
+                json.put("id", "sourceFile");
+                json.put("fileName", sourceFileName);
+                pw.println("# " + json);
+            }
+            catch (JSONException e)
+            {
+                logger.info("Failed to convert source file name {} into JSON.", sourceFileName);
+            }
+        }
+
+        @Override
+        public void visitAnyAttribute(Clazz clazz, Attribute attribute)
+        {
+
+        }
     }
 }

@@ -10,6 +10,7 @@ package proguard;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import proguard.classfile.io.kotlin.KotlinMetadataWriter;
+import proguard.classfile.kotlin.KotlinMetadataVersion;
 import proguard.classfile.kotlin.visitor.ReferencedKotlinMetadataVisitor;
 import proguard.classfile.visitor.ClassCounter;
 import proguard.pass.Pass;
@@ -20,13 +21,6 @@ implements Pass
 {
     private static final Logger logger = LogManager.getLogger(KotlinMetadataAdapter.class);
 
-    private final Configuration configuration;
-
-    public KotlinMetadataAdapter(Configuration configuration)
-    {
-        this.configuration = configuration;
-    }
-
 
     @Override
     public void execute(AppView appView)
@@ -36,7 +30,10 @@ implements Pass
         ClassCounter counter = new ClassCounter();
         appView.programClassPool.classesAccept(
             new ReferencedKotlinMetadataVisitor(
-            new KotlinMetadataWriter((clazz, message) -> logger.warn(message), counter)));
+            new KotlinMetadataWriter(
+                (clazz, message) -> logger.warn(clazz.getName(), message),
+                counter
+            )));
 
         logger.info("  Number of Kotlin classes adapted:              " + counter.getCount());
     }

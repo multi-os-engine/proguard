@@ -23,13 +23,12 @@ package proguard;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import proguard.backport.Backporter;
-import proguard.classfile.editor.*;
+import proguard.classfile.editor.ClassElementSorter;
 import proguard.classfile.pass.PrimitiveArrayConstantIntroducer;
-import proguard.classfile.util.*;
+import proguard.classfile.util.PrimitiveArrayConstantReplacer;
 import proguard.configuration.ConfigurationLoggingAdder;
-import proguard.evaluation.IncompleteClassHierarchyException;
 import proguard.configuration.InitialStateInfo;
-import proguard.io.ExtraDataEntryNameMap;
+import proguard.evaluation.IncompleteClassHierarchyException;
 import proguard.logging.Logging;
 import proguard.mark.Marker;
 import proguard.obfuscate.NameObfuscationReferenceFixer;
@@ -41,13 +40,20 @@ import proguard.optimize.Optimizer;
 import proguard.optimize.gson.GsonOptimizer;
 import proguard.optimize.peephole.LineNumberLinearizer;
 import proguard.pass.PassRunner;
-import proguard.preverify.*;
+import proguard.preverify.PreverificationClearer;
+import proguard.preverify.Preverifier;
+import proguard.preverify.SubroutineInliner;
 import proguard.shrink.Shrinker;
 import proguard.strip.KotlinAnnotationStripper;
-import proguard.util.*;
-import proguard.util.kotlin.asserter.KotlinMetadataAsserter;
+import proguard.util.ConstantMatcher;
+import proguard.util.ListParser;
+import proguard.util.NameParser;
+import proguard.util.StringMatcher;
+import proguard.util.kotlin.KotlinUnsupportedVersionChecker;
+import proguard.util.kotlin.asserter.KotlinMetadataVerifier;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.PrintWriter;
 
 /**
  * Tool for shrinking, optimizing, obfuscating, and preverifying Java classes.
@@ -91,6 +97,12 @@ public class ProGuard
         {
             checkGpl();
 
+            // Set the -keepkotlinmetadata option if necessary.
+            if (!configuration.dontProcessKotlinMetadata)
+            {
+                configuration.keepKotlinMetadata = requiresKotlinMetadata();
+            }
+
             if (configuration.printConfiguration != null)
             {
                 printConfiguration();
@@ -130,6 +142,8 @@ public class ProGuard
                 initialize();
                 mark();
             }
+
+            checkConfigurationAfterInitialization();
 
             if (configuration.addConfigurationDebugging)
             {
@@ -265,15 +279,24 @@ public class ProGuard
         GPL.check();
     }
 
+    private boolean requiresKotlinMetadata()
+    {
+        return configuration.keepKotlinMetadata ||
+            (configuration.keep != null &&
+                configuration.keep.stream().anyMatch(
+                    keepClassSpecification -> ! keepClassSpecification.allowObfuscation &&
+                                              ! keepClassSpecification.allowShrinking   &&
+                                              "kotlin/Metadata".equals(keepClassSpecification.className)
+                ));
+    }
+
 
     /**
      * Prints out the configuration that ProGuard is using.
      */
     private void printConfiguration() throws IOException
     {
-        PrintWriter pw = PrintWriterUtil.createPrintWriterOut(configuration.printConfiguration);
-
-        try (ConfigurationWriter configurationWriter = new ConfigurationWriter(pw))
+        try (ConfigurationWriter configurationWriter = new ConfigurationWriter(configuration.printConfiguration))
         {
             configurationWriter.write(configuration);
         }
@@ -285,7 +308,7 @@ public class ProGuard
      */
     private void checkConfiguration() throws IOException
     {
-        new ConfigurationChecker(configuration).check();
+        new ConfigurationVerifier(configuration).check();
     }
 
 
@@ -323,12 +346,16 @@ public class ProGuard
      */
     private void initialize() throws Exception
     {
+        if (configuration.keepKotlinMetadata)
+        {
+            passRunner.run(new KotlinUnsupportedVersionChecker(), appView);
+        }
         passRunner.run(new Initializer(configuration), appView);
 
         if (configuration.keepKotlinMetadata &&
             configuration.enableKotlinAsserter)
         {
-            passRunner.run(new KotlinMetadataAsserter(configuration), appView);
+            passRunner.run(new KotlinMetadataVerifier(configuration), appView);
         }
     }
 
@@ -351,6 +378,13 @@ public class ProGuard
         passRunner.run(new KotlinAnnotationStripper(configuration), appView);
     }
 
+    /**
+     * Checks the configuration after it has been initialized.
+     */
+    private void checkConfigurationAfterInitialization() throws Exception
+    {
+        passRunner.run(new AfterInitConfigurationVerifier(configuration), appView);
+    }
 
     /**
      * Replaces primitive array initialization code by primitive array constants.
@@ -411,7 +445,7 @@ public class ProGuard
         if (configuration.keepKotlinMetadata &&
             configuration.enableKotlinAsserter)
         {
-            passRunner.run(new KotlinMetadataAsserter(configuration), appView);
+            passRunner.run(new KotlinMetadataVerifier(configuration), appView);
         }
     }
 
@@ -479,7 +513,7 @@ public class ProGuard
         if (configuration.keepKotlinMetadata &&
             configuration.enableKotlinAsserter)
         {
-            passRunner.run(new KotlinMetadataAsserter(configuration), appView);
+            passRunner.run(new KotlinMetadataVerifier(configuration), appView);
         }
     }
 
@@ -489,7 +523,7 @@ public class ProGuard
      */
     private void adaptKotlinMetadata() throws Exception
     {
-        passRunner.run(new KotlinMetadataAdapter(configuration), appView);
+        passRunner.run(new KotlinMetadataAdapter(), appView);
     }
 
 
@@ -536,7 +570,16 @@ public class ProGuard
      */
     private void sortClassElements()
     {
-        appView.programClassPool.classesAccept(new ClassElementSorter());
+        appView.programClassPool.classesAccept(
+            new ClassElementSorter(
+                /* sortInterfaces = */ true,
+                /* sortConstants = */ true,
+                // Sorting members can cause problems with code such as clazz.getMethods()[1]
+                /* sortMembers = */ false,
+                // PGD-192: Sorting attributes can cause problems for some compilers
+                /* sortAttributes = */ false
+            )
+        );
     }
 
 
