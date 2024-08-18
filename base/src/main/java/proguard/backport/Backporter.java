@@ -319,6 +319,13 @@ public class Backporter
             programClassPool.classesAccept(new ClassVersionSetter(targetClassVersion));
         }
 
+        // Backporting may introduce access issues, for example related to nest members/host.
+        // BACKPORTED FROM: https://github.com/Guardsquare/proguard/commit/a02100cb93153528a2b186797174d9b42094f94d
+        if (configuration.allowAccessModification)
+        {
+            programClassPool.classesAccept(new AccessFixer());
+        }
+
         if (configuration.verbose)
         {
             System.out.println("  Number of converted string concatenations:     " + replacedStringConcatCounter.getCount());
